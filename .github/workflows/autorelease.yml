@@ -168,6 +168,7 @@ jobs:
         mise trust sdk/python
         cd sdk/python
         mise install
+        cp --dereference README.md README.md.real && mv README.md.real README.md
         uv build
         uv publish
 
