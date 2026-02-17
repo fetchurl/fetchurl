@@ -25,3 +25,6 @@ classifiers = [
 Homepage = "https://github.com/lucasew/fetchurl"
 Repository = "https://github.com/lucasew/fetchurl"
 "Bug Tracker" = "https://github.com/lucasew/fetchurl/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fetchurl"]
