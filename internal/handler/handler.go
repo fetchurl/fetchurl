@@ -62,9 +62,12 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if exists {
+		slog.Info("cache hit", "algo", algo, "hash", hash)
 		h.serveFromCache(w, r, algo, hash)
 		return
 	}
+
+	slog.Info("cache miss", "algo", algo, "hash", hash)
 
 	// 2. Cache Miss -> Fetch & Stream
 
