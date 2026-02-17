@@ -138,6 +138,17 @@ jobs:
         docker push "$TAG:$VERSION"
         docker push "$TAG:latest"
 
+    - name: Sync SDK versions
+      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      run: |
+        VERSION="$(cat version.txt)"
+        # JS
+        jq --arg v "$VERSION" '.version = $v' sdk/js/package.json > sdk/js/package.json.tmp && mv sdk/js/package.json.tmp sdk/js/package.json
+        # Python
+        sed -i "s/^version = .*/version = \"$VERSION\"/" sdk/python/pyproject.toml
+        # Rust
+        sed -i "0,/^version = .*/s/^version = .*/version = \"$VERSION\"/" sdk/rust/Cargo.toml
+
     - name: Publish npm package
       if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
       continue-on-error: true
