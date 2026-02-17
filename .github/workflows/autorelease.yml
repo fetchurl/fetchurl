@@ -140,6 +140,7 @@ jobs:
 
     - name: Publish npm package
       if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      continue-on-error: true
       env:
         NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       run: |
@@ -149,6 +150,7 @@ jobs:
 
     - name: Publish Python package
       if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      continue-on-error: true
       env:
         UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: |
@@ -160,6 +162,7 @@ jobs:
 
     - name: Publish Rust crate
       if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      continue-on-error: true
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
       run: |
