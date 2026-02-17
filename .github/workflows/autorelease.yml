@@ -137,3 +137,33 @@ jobs:
         docker tag "$TAG:latest" "$TAG:$VERSION"
         docker push "$TAG:$VERSION"
         docker push "$TAG:latest"
+
+    - name: Publish npm package
+      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      env:
+        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: |
+        npm config set //registry.npmjs.org/:_authToken "${NPM_TOKEN}"
+        cd sdk/js
+        npm publish --access public
+
+    - name: Publish Python package
+      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      env:
+        UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: |
+        mise trust sdk/python
+        cd sdk/python
+        mise install
+        uv build
+        uv publish
+
+    - name: Publish Rust crate
+      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      run: |
+        mise trust sdk/rust
+        cd sdk/rust
+        mise install
+        cargo publish
