@@ -66,6 +66,13 @@ pub fn is_supported(algo: &str) -> bool {
 
 /// Parse the `FETCHURL_SERVER` environment variable value (an RFC 8941 string list).
 pub fn parse_fetchurl_server(value: &str) -> Vec<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Vec::new();
+    }
+    if !value.starts_with('"') {
+        return vec![value.to_string()];
+    }
     parse_sfv_string_list(value)
 }
 
@@ -193,11 +200,7 @@ impl FetchSession {
     /// - `algo`: hash algorithm name (e.g. `"sha256"`)
     /// - `hash`: expected hash in hex
     /// - `source_urls`: direct source URLs (tried after servers, in random order)
-    pub fn new(
-        algo: &str,
-        hash: &str,
-        source_urls: &[impl AsRef<str>],
-    ) -> Result<Self, Error> {
+    pub fn new(algo: &str, hash: &str, source_urls: &[impl AsRef<str>]) -> Result<Self, Error> {
         let algo = normalize_algo(algo);
         if !is_supported(&algo) {
             return Err(Error::UnsupportedAlgorithm(algo));
@@ -226,10 +229,7 @@ impl FetchSession {
         }
 
         // Direct sources (shuffled per spec)
-        let mut direct: Vec<String> = source_urls
-            .iter()
-            .map(|s| s.as_ref().to_string())
-            .collect();
+        let mut direct: Vec<String> = source_urls.iter().map(|s| s.as_ref().to_string()).collect();
         direct.shuffle(&mut rand::thread_rng());
         for url in direct {
             attempts.push(FetchAttempt {
@@ -343,8 +343,7 @@ pub struct HashVerifier<W: Write> {
 
 impl<W: Write> HashVerifier<W> {
     fn new(algo: &str, expected_hash: &str, inner: W) -> Self {
-        let hasher =
-            HasherInner::new(algo).expect("HashVerifier created with validated algo");
+        let hasher = HasherInner::new(algo).expect("HashVerifier created with validated algo");
         HashVerifier {
             inner,
             hasher,
@@ -473,24 +472,17 @@ mod tests {
 
     #[test]
     fn test_session_unsupported_algo() {
-        let err = FetchSession::new(
-            "md5",
-            "abc",
-            &["http://src"],
-        );
+        let err = FetchSession::new("md5", "abc", &["http://src"]);
         assert!(matches!(err, Err(Error::UnsupportedAlgorithm(_))));
     }
 
     #[test]
     fn test_session_attempt_ordering() {
         let hash = sha256_hex(b"test");
-        unsafe { std::env::set_var("FETCHURL_SERVER", "\"http://cache1\", \"http://cache2\""); }
-        let mut session = FetchSession::new(
-            "sha256",
-            &hash,
-            &["http://src1"],
-        )
-        .unwrap();
+        unsafe {
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache1\", \"http://cache2\"");
+        }
+        let mut session = FetchSession::new("sha256", &hash, &["http://src1"]).unwrap();
 
         // First two attempts should be servers
         let a1 = session.next_attempt().unwrap();
@@ -513,13 +505,10 @@ mod tests {
     #[test]
     fn test_session_success_stops() {
         let hash = sha256_hex(b"test");
-        unsafe { std::env::set_var("FETCHURL_SERVER", "\"http://cache\""); }
-        let mut session = FetchSession::new(
-            "sha256",
-            &hash,
-            &["http://src"],
-        )
-        .unwrap();
+        unsafe {
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache\"");
+        }
+        let mut session = FetchSession::new("sha256", &hash, &["http://src"]).unwrap();
 
         let _ = session.next_attempt().unwrap();
         session.report_success();
@@ -530,13 +519,10 @@ mod tests {
     #[test]
     fn test_session_partial_stops() {
         let hash = sha256_hex(b"test");
-        unsafe { std::env::set_var("FETCHURL_SERVER", "\"http://cache\""); }
-        let mut session = FetchSession::new(
-            "sha256",
-            &hash,
-            &["http://src"],
-        )
-        .unwrap();
+        unsafe {
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache\"");
+        }
+        let mut session = FetchSession::new("sha256", &hash, &["http://src"]).unwrap();
 
         let _ = session.next_attempt().unwrap();
         session.report_partial();
@@ -547,13 +533,11 @@ mod tests {
     #[test]
     fn test_session_server_has_source_header() {
         let hash = sha256_hex(b"test");
-        unsafe { std::env::set_var("FETCHURL_SERVER", "\"http://cache\""); }
-        let mut session = FetchSession::new(
-            "sha256",
-            &hash,
-            &["http://src1", "http://src2"],
-        )
-        .unwrap();
+        unsafe {
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache\"");
+        }
+        let mut session =
+            FetchSession::new("sha256", &hash, &["http://src1", "http://src2"]).unwrap();
 
         let attempt = session.next_attempt().unwrap();
         let source_header = attempt

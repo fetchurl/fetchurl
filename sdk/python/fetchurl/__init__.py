@@ -103,6 +103,11 @@ def encode_source_urls(urls: list[str]) -> str:
 
 def parse_fetchurl_server(value: str) -> list[str]:
     """Parse FETCHURL_SERVER env var (RFC 8941 string list)."""
+    value = value.strip()
+    if not value:
+        return []
+    if not value.startswith('"'):
+        return [value]
     results: list[str] = []
     i = 0
     while i < len(value):

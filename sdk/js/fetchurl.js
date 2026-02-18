@@ -109,6 +109,11 @@ export function encodeSourceUrls(urls) {
  * @returns {string[]}
  */
 export function parseFetchurlServer(value) {
+  value = value.trim();
+  if (value === '') return [];
+  if (!value.startsWith('"')) {
+    return [value];
+  }
   const results = [];
   let i = 0;
   while (i < value.length) {

@@ -59,15 +59,20 @@ func NewFetcher(client *http.Client) *Fetcher {
 	var servers []string
 	envServer := os.Getenv("FETCHURL_SERVER")
 	if envServer != "" {
-		list, err := sfv.DecodeList([]string{envServer})
-		if err != nil {
-			errutil.LogMsg(err, "Failed to parse FETCHURL_SERVER")
-		} else {
-			for _, item := range list {
-				if s, ok := item.Value.(string); ok {
-					servers = append(servers, s)
+		envServer = strings.TrimSpace(envServer)
+		if strings.HasPrefix(envServer, "\"") {
+			list, err := sfv.DecodeList([]string{envServer})
+			if err != nil {
+				errutil.LogMsg(err, "Failed to parse FETCHURL_SERVER")
+			} else {
+				for _, item := range list {
+					if s, ok := item.Value.(string); ok {
+						servers = append(servers, s)
+					}
 				}
 			}
+		} else {
+			servers = append(servers, envServer)
 		}
 	}
 
