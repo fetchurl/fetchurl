@@ -42,15 +42,24 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
     const upstream = await startUpstreamServer(content);
     const repoRoot = path.resolve(__dirname, '..', '..');
 
+    const imageRef = process.env.FETCHURL_TEST_IMAGE;
     let container;
     const oldEnv = process.env.FETCHURL_SERVER;
     try {
-      const image = await GenericContainer.fromDockerfile(repoRoot).build();
-      container = await image
-        .withCommand(['server'])
-        .withExposedPorts(8080)
-        .withWaitStrategy(Wait.forLogMessage(/Starting server/i))
-        .start();
+      if (imageRef) {
+        container = await new GenericContainer(imageRef)
+          .withCommand(['server'])
+          .withExposedPorts(8080)
+          .withWaitStrategy(Wait.forLogMessage(/Starting server/i))
+          .start();
+      } else {
+        const image = await GenericContainer.fromDockerfile(repoRoot).build();
+        container = await image
+          .withCommand(['server'])
+          .withExposedPorts(8080)
+          .withWaitStrategy(Wait.forLogMessage(/Starting server/i))
+          .start();
+      }
 
       const host = container.getHost();
       const port = container.getMappedPort(8080);

@@ -50,12 +50,21 @@ class TestIntegration(unittest.TestCase):
                 upstream.start()
                 wait_for_logs(upstream, "Serving HTTP on", timeout=10)
 
-                server = (
-                    DockerfileContainer(str(repo_root))
-                    .with_command("server")
-                    .with_network(net)
-                    .with_exposed_ports(8080)
-                )
+                image_ref = os.environ.get("FETCHURL_TEST_IMAGE")
+                if image_ref:
+                    server = (
+                        GenericContainer(image_ref)
+                        .with_command(["server"])
+                        .with_network(net)
+                        .with_exposed_ports(8080)
+                    )
+                else:
+                    server = (
+                        DockerfileContainer(str(repo_root))
+                        .with_command("server")
+                        .with_network(net)
+                        .with_exposed_ports(8080)
+                    )
                 server.start()
                 wait_for_logs(server, "Starting server", timeout=20)
 

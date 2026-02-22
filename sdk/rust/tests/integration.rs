@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use fetchurl_sdk as fetchurl;
 use testcontainers::clients::Cli;
 use testcontainers::core::WaitFor;
-use testcontainers::images::generic::GenericImage;
+use testcontainers::{GenericImage, RunnableImage};
 
 fn parse_image(image: &str) -> (String, String) {
     if let Some((name, tag)) = image.rsplit_once(':') {
@@ -88,14 +88,21 @@ fn integration_fetchurl_server() {
     let (name, tag) = parse_image(&image);
     let docker = Cli::default();
     let server_image = GenericImage::new(name, tag)
-        .with_cmd(vec!["server"])
         .with_exposed_port(8080)
         .with_wait_for(WaitFor::message_on_stdout("Starting server"));
-    let server = docker.run(server_image);
+    let server = docker.run(RunnableImage::from((
+        server_image,
+        vec!["server".to_string()],
+    )));
 
     let old_env = env::var("FETCHURL_SERVER").ok();
     let host_port = server.get_host_port_ipv4(8080);
-    env::set_var("FETCHURL_SERVER", format!("\"http://127.0.0.1:{host_port}\""));
+    unsafe {
+        env::set_var(
+            "FETCHURL_SERVER",
+            format!("\"http://127.0.0.1:{host_port}\""),
+        );
+    }
 
     let source_url = format!("http://{host_for_container}:{upstream_port}/file");
     let mut session =
@@ -107,11 +114,13 @@ fn integration_fetchurl_server() {
         for (k, v) in attempt.headers() {
             req = req.set(k, v);
         }
-        let resp = req.call();
-        if resp.error() {
+        let resp = match req.call() {
+            Ok(resp) => resp,
+            Err(_) => continue,
+        };
+        if resp.status() != 200 {
             continue;
         }
-
         let mut verifier = session.verifier(&mut output);
         let mut reader = resp.into_reader();
         let mut buf = [0u8; 8192];
@@ -128,9 +137,13 @@ fn integration_fetchurl_server() {
     }
 
     if let Some(val) = old_env {
-        env::set_var("FETCHURL_SERVER", val);
+        unsafe {
+            env::set_var("FETCHURL_SERVER", val);
+        }
     } else {
-        env::remove_var("FETCHURL_SERVER");
+        unsafe {
+            env::remove_var("FETCHURL_SERVER");
+        }
     }
 
     upstream_handle.join().unwrap();
