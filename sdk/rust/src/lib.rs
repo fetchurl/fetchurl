@@ -40,6 +40,10 @@ pub enum Error {
     #[error("unsupported algorithm: {0}")]
     UnsupportedAlgorithm(String),
 
+    /// Source URLs are required by the protocol.
+    #[error("source_urls is required")]
+    MissingSourceUrls,
+
     /// The content hash does not match the expected hash.
     #[error("hash mismatch: expected {expected}, got {actual}")]
     HashMismatch { expected: String, actual: String },
@@ -201,6 +205,10 @@ impl FetchSession {
     /// - `hash`: expected hash in hex
     /// - `source_urls`: direct source URLs (tried after servers, in random order)
     pub fn new(algo: &str, hash: &str, source_urls: &[impl AsRef<str>]) -> Result<Self, Error> {
+        if source_urls.is_empty() {
+            return Err(Error::MissingSourceUrls);
+        }
+
         let algo = normalize_algo(algo);
         if !is_supported(&algo) {
             return Err(Error::UnsupportedAlgorithm(algo));
@@ -474,6 +482,12 @@ mod tests {
     fn test_session_unsupported_algo() {
         let err = FetchSession::new("md5", "abc", &["http://src"]);
         assert!(matches!(err, Err(Error::UnsupportedAlgorithm(_))));
+    }
+
+    #[test]
+    fn test_session_missing_source_urls() {
+        let err = FetchSession::new("sha256", "abc", &[] as &[&str]);
+        assert!(matches!(err, Err(Error::MissingSourceUrls)));
     }
 
     #[test]

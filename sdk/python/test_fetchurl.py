@@ -85,6 +85,10 @@ class TestHashVerifier(unittest.TestCase):
 
 
 class TestFetchSession(unittest.TestCase):
+    def test_missing_source_urls(self):
+        with self.assertRaises(fetchurl.MissingSourceUrlsError):
+            fetchurl.FetchSession("sha256", "abc", [])
+
     def test_unsupported_algo(self):
         with self.assertRaises(fetchurl.UnsupportedAlgorithmError):
             fetchurl.FetchSession("md5", "abc", ["http://src"])

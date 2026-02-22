@@ -63,6 +63,13 @@ export class PartialWriteError extends FetchUrlError {
   }
 }
 
+export class MissingSourceUrlsError extends FetchUrlError {
+  constructor() {
+    super('sourceUrls is required');
+    this.name = 'MissingSourceUrlsError';
+  }
+}
+
 // --- Algorithm helpers ---
 
 /** Map from normalized algo name to Web Crypto algorithm identifier. */
@@ -270,6 +277,10 @@ export class FetchSession {
   constructor({ servers = [], algo, hash, sourceUrls = [] }) {
     if (typeof process !== 'undefined' && process.env) {
       servers = parseFetchurlServer(process.env.FETCHURL_SERVER || '');
+    }
+
+    if (!Array.isArray(sourceUrls) || sourceUrls.length === 0) {
+      throw new MissingSourceUrlsError();
     }
 
     this.#algo = normalizeAlgo(algo);

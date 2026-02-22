@@ -11,6 +11,7 @@ import {
   FetchSession,
   fetchurl,
   UnsupportedAlgorithmError,
+  MissingSourceUrlsError,
   HashMismatchError,
   AllSourcesFailedError,
   PartialWriteError,
@@ -127,6 +128,13 @@ describe('hashData / verifyHash', () => {
 });
 
 describe('FetchSession', () => {
+  it('rejects missing sourceUrls', () => {
+    assert.throws(
+      () => new FetchSession({ algo: 'sha256', hash: 'abc', sourceUrls: [] }),
+      MissingSourceUrlsError,
+    );
+  });
+
   it('rejects unsupported algo', () => {
     assert.throws(
       () => new FetchSession({ algo: 'md5', hash: 'abc', sourceUrls: ['http://src'] }),

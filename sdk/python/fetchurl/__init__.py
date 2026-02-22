@@ -76,6 +76,13 @@ class PartialWriteError(FetchUrlError):
         super().__init__(f"partial write: {cause}")
 
 
+class MissingSourceUrlsError(FetchUrlError):
+    """Source URLs are required by the protocol."""
+
+    def __init__(self):
+        super().__init__("source_urls is required")
+
+
 # --- Algorithm helpers ---
 
 _SUPPORTED_ALGOS = {"sha1", "sha256", "sha512"}
@@ -216,6 +223,9 @@ class FetchSession:
         hash: str,
         source_urls: list[str],
     ):
+        if not source_urls:
+            raise MissingSourceUrlsError()
+
         servers = parse_fetchurl_server(os.environ.get("FETCHURL_SERVER", ""))
         algo = normalize_algo(algo)
         if not is_supported(algo):
