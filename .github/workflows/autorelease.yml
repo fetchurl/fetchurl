@@ -72,6 +72,9 @@ jobs:
           exit 1
         fi
 
+    - name: Run testcontainers
+      run: mise run testcontainers
+
     - name: Build binaries
       env:
         TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
