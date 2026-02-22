@@ -30,7 +30,7 @@ description = "Run JS integration tests with testcontainers"
 [tasks."testcontainers:python"]
 depends = ["build:fetchurl-image"]
 dir = "sdk/python"
-run = "FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- uv run --extra test python -m unittest test_fetchurl_integration.py"
+run = "FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- uv sync --dev && FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- uv run --extra test python -m unittest test_fetchurl_integration.py"
 description = "Run Python integration tests with testcontainers"
 
 [tasks."testcontainers:rust"]

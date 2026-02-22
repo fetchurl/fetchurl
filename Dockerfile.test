@@ -1,0 +1,31 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    docker.io \
+    python3 \
+    python3-venv \
+    python3-pip \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    xz-utils \
+    unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install mise
+RUN curl -fsSL https://mise.jdx.dev/install.sh | sh
+ENV PATH="/root/.local/share/mise/bin:${PATH}"
+
+WORKDIR /repo
+COPY . /repo
+
+# Install toolchain versions for tasks
+RUN mise trust && mise install
+
+# Default to shell for manual runs
+CMD ["bash"]

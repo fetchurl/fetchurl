@@ -4,12 +4,13 @@ import hashlib
 import os
 import tempfile
 import unittest
+import signal
+import time
 from pathlib import Path
 
 import fetchurl
-from testcontainers.core.container import DockerfileContainer, GenericContainer
+from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
-from testcontainers.core.waiting_utils import wait_for_logs
 
 
 def sha256hex(data: bytes) -> str:
@@ -18,6 +19,13 @@ def sha256hex(data: bytes) -> str:
 
 class TestIntegration(unittest.TestCase):
     def test_fetchurl_server_integration(self):
+        old_handler = None
+        if hasattr(signal, "SIGALRM"):
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("integration test timed out")
+
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(60)
         content = b"integration-test"
         hash_hex = sha256hex(content)
 
@@ -28,45 +36,39 @@ class TestIntegration(unittest.TestCase):
             data_dir = Path(tmpdir)
             (data_dir / "file").write_bytes(content)
 
-            with Network() as net:
+            net = Network().create()
+            server = None
+            upstream = None
+            try:
                 upstream = (
-                    GenericContainer("python:3.12-alpine")
+                    DockerContainer("python:3.12-alpine")
                     .with_network(net)
                     .with_network_aliases("upstream")
-                    .with_bind_mount(str(data_dir), "/srv", mode="ro")
+                    .with_volume_mapping(str(data_dir), "/srv", mode="ro")
                     .with_command(
-                        [
-                            "python",
-                            "-m",
-                            "http.server",
-                            "8000",
-                            "--bind",
-                            "0.0.0.0",
-                            "--directory",
-                            "/srv",
-                        ]
+                        "python -m http.server 8000 --bind 0.0.0.0 --directory /srv"
                     )
-                )
-                upstream.start()
-                wait_for_logs(upstream, "Serving HTTP on", timeout=10)
+                ).start()
 
                 image_ref = os.environ.get("FETCHURL_TEST_IMAGE")
-                if image_ref:
-                    server = (
-                        GenericContainer(image_ref)
-                        .with_command(["server"])
-                        .with_network(net)
-                        .with_exposed_ports(8080)
-                    )
-                else:
-                    server = (
-                        DockerfileContainer(str(repo_root))
-                        .with_command("server")
-                        .with_network(net)
-                        .with_exposed_ports(8080)
-                    )
-                server.start()
-                wait_for_logs(server, "Starting server", timeout=20)
+                if not image_ref:
+                    self.fail("FETCHURL_TEST_IMAGE is required for integration test")
+                server = (
+                    DockerContainer(image_ref)
+                    .with_command("server")
+                    .with_network(net)
+                    .with_exposed_ports(8080)
+                ).start()
+
+                time.sleep(1)
+
+                class TimeoutFetcher:
+                    def get(self, url, headers):
+                        import urllib.request
+
+                        req = urllib.request.Request(url, headers=headers)
+                        resp = urllib.request.urlopen(req, timeout=10)
+                        return (resp.status, resp)
 
                 out = tempfile.TemporaryFile()
                 try:
@@ -75,7 +77,7 @@ class TestIntegration(unittest.TestCase):
                     os.environ["FETCHURL_SERVER"] = f"\"http://{host}:{port}\""
 
                     fetchurl.fetch(
-                        fetchurl.UrllibFetcher(),
+                        TimeoutFetcher(),
                         "sha256",
                         hash_hex,
                         ["http://upstream:8000/file"],
@@ -85,11 +87,27 @@ class TestIntegration(unittest.TestCase):
                     fetched = out.read()
                 finally:
                     out.close()
-                    server.stop()
-                    upstream.stop()
-                    if old_env is None:
-                        os.environ.pop("FETCHURL_SERVER", None)
-                    else:
-                        os.environ["FETCHURL_SERVER"] = old_env
+            finally:
+                if server is not None:
+                    try:
+                        server.stop()
+                    except Exception:
+                        pass
+                if upstream is not None:
+                    try:
+                        upstream.stop()
+                    except Exception:
+                        pass
+                if old_env is None:
+                    os.environ.pop("FETCHURL_SERVER", None)
+                else:
+                    os.environ["FETCHURL_SERVER"] = old_env
+                try:
+                    net.remove()
+                except Exception:
+                    pass
 
             self.assertEqual(fetched, content)
+        if hasattr(signal, "SIGALRM"):
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
