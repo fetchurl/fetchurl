@@ -28,6 +28,7 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
         .withCopyContentToContainer([
           { content: content.toString('utf8'), target: '/srv/file' },
         ])
+        .withExposedPorts(8000)
         .withCommand([
           'python',
           '-m',
@@ -38,7 +39,7 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
           '--directory',
           '/srv',
         ])
-        .withWaitStrategy(Wait.forListeningPorts())
+        .withWaitStrategy(Wait.forHttp('/file', 8000))
         .start();
 
       if (imageRef) {
