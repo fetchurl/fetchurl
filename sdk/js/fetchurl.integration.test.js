@@ -62,7 +62,9 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
       const port = container.getMappedPort(8080);
       process.env.FETCHURL_SERVER = `"http://${host}:${port}"`;
 
-      const sourceUrl = 'http://upstream:8000/file';
+      const netName = network.getName();
+      const upstreamIp = upstream.getIpAddress(netName);
+      const sourceUrl = `http://${upstreamIp}:8000/file`;
       const data = await fetchurl({
         fetch,
         algo: 'sha256',
