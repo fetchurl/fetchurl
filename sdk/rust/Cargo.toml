@@ -21,6 +21,7 @@ thiserror = "2"
 [dev-dependencies]
 ureq = { version = "2", default-features = false }
 clap = { version = "4", features = ["derive"] }
+testcontainers = "0.15"
 
 [[example]]
 name = "get"
