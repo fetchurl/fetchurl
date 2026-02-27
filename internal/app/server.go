@@ -11,6 +11,7 @@ import (
 
 	"github.com/lucasew/fetchurl/internal/errutil"
 	"github.com/lucasew/fetchurl/internal/proxy"
+	"github.com/lucasew/fetchurl/internal/utils"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
 	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
@@ -81,10 +82,17 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 
 	casHandler := handler.NewCASHandler(localRepo, httpClientForRequests, cfg.Upstreams, appCtx)
 
+	// Shared source map: populated by registry proxy, consumed by /api/cas
+	sourceMap := utils.NewThreadSafeMap[string, []string]()
+
+	casLookupHandler := handler.NewCASLookupHandler(casHandler, sourceMap)
+
 	mux := http.NewServeMux()
-	// Mux handling: /api/fetchurl/{algo}/{hash}
+	// Mux handling: /api/fetchurl/{algo}/{hash} — uses X-Source-Urls headers
 	mux.Handle("/api/fetchurl/", http.StripPrefix("/api/fetchurl", casHandler))
-	mux.Handle("/api/registry/", http.StripPrefix("/api/registry", proxy.GetRewriter(casHandler)))
+	// Mux handling: /api/cas/{algo}/{hash} — uses source map (populated by registry proxy)
+	mux.Handle("/api/cas/", http.StripPrefix("/api/cas", casLookupHandler))
+	mux.Handle("/api/registry/", http.StripPrefix("/api/registry", proxy.GetRewriter(casHandler, sourceMap)))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("Starting server (CAS)", "addr", addr, "cache_dir", cfg.CacheDir, "upstreams", len(cfg.Upstreams))

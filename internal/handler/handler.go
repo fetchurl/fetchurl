@@ -53,6 +53,32 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Collect candidates from headers
+	candidateSources := h.parseSourceUrls(r.Header)
+
+	// Collect sources to try (Upstreams + Candidates)
+	var sourcesToTry []string
+
+	// Add configured upstreams first
+	for _, u := range h.Upstreams {
+		base := strings.TrimRight(u, "/")
+		sourceUrl := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, algo, hash)
+		sourcesToTry = append(sourcesToTry, sourceUrl)
+	}
+
+	// Add dynamic sources from headers (shuffled per DESIGN.md constraint 3)
+	rand.Shuffle(len(candidateSources), func(i, j int) {
+		candidateSources[i], candidateSources[j] = candidateSources[j], candidateSources[i]
+	})
+	sourcesToTry = append(sourcesToTry, candidateSources...)
+
+	h.Serve(w, r, algo, hash, sourcesToTry, candidateSources)
+}
+
+// Serve handles the fetch logic for a given algo/hash with explicit source URLs.
+// It checks the local cache first, then tries the provided sources.
+// candidateSources are forwarded as X-Source-Urls to upstreams.
+func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, algo, hash string, sourcesToTry, candidateSources []string) {
 	// 1. Try Local Cache
 	exists, err := h.Local.Exists(r.Context(), algo, hash)
 	if err != nil {
@@ -69,33 +95,8 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("cache miss", "algo", algo, "hash", hash)
 
-	// 2. Cache Miss -> Fetch & Stream
-
-	// Collect candidates
-	candidateSources := h.parseSourceUrls(r.Header)
-
-	// Collect sources to try (Upstreams + Candidates)
-	var sourcesToTry []string
-
-	// Add configured upstreams first
-	for _, u := range h.Upstreams {
-		// Construct CAS URL for upstream
-		// Assume upstream is a base URL like http://cache.local:8080
-		// We need to append /api/fetchurl/{algo}/{hash}
-		// Ensure trailing slash handling
-		base := strings.TrimRight(u, "/")
-		sourceUrl := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, algo, hash)
-		sourcesToTry = append(sourcesToTry, sourceUrl)
-	}
-
-	// Add dynamic sources from headers (shuffled per DESIGN.md constraint 3)
-	rand.Shuffle(len(candidateSources), func(i, j int) {
-		candidateSources[i], candidateSources[j] = candidateSources[j], candidateSources[i]
-	})
-	sourcesToTry = append(sourcesToTry, candidateSources...)
-
 	if len(sourcesToTry) == 0 {
-		http.Error(w, "Not found and no X-Source-Urls provided", http.StatusNotFound)
+		http.Error(w, "Not found and no source URLs available", http.StatusNotFound)
 		return
 	}
 
@@ -110,12 +111,10 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		// If error occurred and we haven't written headers yet, send error response
 		if !headersWritten {
 			errutil.ReportError(err, "Fetch failed")
 			http.Error(w, fmt.Sprintf("Failed to fetch: %v", err), http.StatusBadGateway)
 		} else {
-			// Headers already written, connection might be aborted or partial.
 			errutil.ReportError(err, "Fetch failed after headers written")
 		}
 		return
@@ -123,7 +122,6 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// If shared, it means we waited for the leader.
 	if shared {
-		// Leader finished successfully. Serve from cache.
 		h.serveFromCache(w, r, algo, hash)
 	}
 }

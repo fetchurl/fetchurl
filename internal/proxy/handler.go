@@ -5,18 +5,25 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/lucasew/fetchurl/internal/utils"
 )
 
+// SourceMap maps "algo:hash" to a list of source URLs.
+type SourceMap = utils.ThreadSafeMap[string, []string]
+
 type Handler struct {
-	client *http.Client
+	client  *http.Client
+	sources *SourceMap
 }
 
-func NewHandler(client *http.Client) *Handler {
+func NewHandler(client *http.Client, sources *SourceMap) *Handler {
 	if client == nil {
 		client = &http.Client{}
 	}
 	return &Handler{
-		client: client,
+		client:  client,
+		sources: sources,
 	}
 }
 
