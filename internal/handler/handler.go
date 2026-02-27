@@ -14,6 +14,7 @@ import (
 	"github.com/lucasew/fetchurl/internal/errutil"
 	"github.com/lucasew/fetchurl/internal/hashutil"
 	"github.com/lucasew/fetchurl/internal/repository"
+	"github.com/lucasew/fetchurl/internal/utils"
 	"github.com/shogo82148/go-sfv"
 	"golang.org/x/sync/singleflight"
 )
@@ -45,11 +46,14 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path format. Expected /{algo}/{hash}", http.StatusBadRequest)
 		return
 	}
-	algo := hashutil.NormalizeAlgo(parts[0])
-	hash := parts[1]
 
-	if !hashutil.IsSupported(algo) {
-		http.Error(w, fmt.Sprintf("Unsupported hash algorithm: %s", algo), http.StatusBadRequest)
+	id := utils.Hash{
+		Algo: hashutil.NormalizeAlgo(parts[0]),
+		Hash: parts[1],
+	}
+
+	if !hashutil.IsSupported(id.Algo) {
+		http.Error(w, fmt.Sprintf("Unsupported hash algorithm: %s", id.Algo), http.StatusBadRequest)
 		return
 	}
 
@@ -61,23 +65,24 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		candidateSources[i], candidateSources[j] = candidateSources[j], candidateSources[i]
 	})
 
-	h.Serve(w, r, algo, hash, candidateSources)
+	h.Serve(w, r, id, candidateSources)
 }
 
-// Serve handles the fetch logic for a given algo/hash with candidate source URLs.
+// Serve handles the fetch logic for a given hash ID with candidate source URLs.
 // It checks the local cache first, then tries upstreams followed by the candidate sources.
 // candidateSources are also forwarded as X-Source-Urls to upstreams.
-func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, algo, hash string, candidateSources []string) {
+func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, id utils.Hash, candidateSources []string) {
 	// Build sources to try: upstreams first, then candidates
 	var sourcesToTry []string
 	for _, u := range h.Upstreams {
 		base := strings.TrimRight(u, "/")
-		sourceUrl := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, algo, hash)
+		sourceUrl := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, id.Algo, id.Hash)
 		sourcesToTry = append(sourcesToTry, sourceUrl)
 	}
 	sourcesToTry = append(sourcesToTry, candidateSources...)
+
 	// 1. Try Local Cache
-	exists, err := h.Local.Exists(r.Context(), algo, hash)
+	exists, err := h.Local.Exists(r.Context(), id.Algo, id.Hash)
 	if err != nil {
 		errutil.ReportError(err, "Failed to check cache existence")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -85,25 +90,23 @@ func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, algo, hash st
 	}
 
 	if exists {
-		slog.Info("cache hit", "algo", algo, "hash", hash)
-		h.serveFromCache(w, r, algo, hash)
+		slog.Info("cache hit", "id", id)
+		h.serveFromCache(w, r, id)
 		return
 	}
 
-	slog.Info("cache miss", "algo", algo, "hash", hash)
+	slog.Info("cache miss", "id", id)
 
 	if len(sourcesToTry) == 0 {
 		http.Error(w, "Not found and no source URLs available", http.StatusNotFound)
 		return
 	}
 
-	sfKey := algo + ":" + hash
-
 	// Capture if headers were written inside the leader execution
 	headersWritten := false
 
-	_, err, shared := h.g.Do(sfKey, func() (interface{}, error) {
-		err := h.fetchAndStream(h.AppCtx, w, algo, hash, sourcesToTry, candidateSources, &headersWritten)
+	_, err, shared := h.g.Do(id.String(), func() (any, error) {
+		err := h.fetchAndStream(h.AppCtx, w, id, sourcesToTry, candidateSources, &headersWritten)
 		return nil, err
 	})
 
@@ -119,14 +122,14 @@ func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, algo, hash st
 
 	// If shared, it means we waited for the leader.
 	if shared {
-		h.serveFromCache(w, r, algo, hash)
+		h.serveFromCache(w, r, id)
 	}
 }
 
-func (h *CASHandler) serveFromCache(w http.ResponseWriter, r *http.Request, algo, hash string) {
-	reader, size, err := h.Local.Get(r.Context(), algo, hash)
+func (h *CASHandler) serveFromCache(w http.ResponseWriter, r *http.Request, id utils.Hash) {
+	reader, size, err := h.Local.Get(r.Context(), id.Algo, id.Hash)
 	if err != nil {
-		errutil.ReportError(err, "Failed to get from cache", "hash", hash)
+		errutil.ReportError(err, "Failed to get from cache", "id", id)
 		http.Error(w, "Failed to retrieve from cache", http.StatusInternalServerError)
 		return
 	}
@@ -134,16 +137,16 @@ func (h *CASHandler) serveFromCache(w http.ResponseWriter, r *http.Request, algo
 		errutil.LogMsg(reader.Close(), "Failed to close cache reader")
 	}()
 
-	h.setCacheHeaders(w, algo, hash)
+	h.setCacheHeaders(w, id)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	if _, err := io.Copy(w, reader); err != nil {
 		errutil.LogMsg(err, "Failed to copy from cache to response")
 	}
 }
 
-func (h *CASHandler) fetchAndStream(ctx context.Context, w http.ResponseWriter, algo, hash string, sources []string, candidateSources []string, headersWritten *bool) error {
+func (h *CASHandler) fetchAndStream(ctx context.Context, w http.ResponseWriter, id utils.Hash, sources []string, candidateSources []string, headersWritten *bool) error {
 	for _, source := range sources {
-		err := h.tryFetchFromSource(ctx, w, algo, hash, source, candidateSources, headersWritten)
+		err := h.tryFetchFromSource(ctx, w, id, source, candidateSources, headersWritten)
 		if err == nil {
 			return nil
 		}
@@ -155,8 +158,8 @@ func (h *CASHandler) fetchAndStream(ctx context.Context, w http.ResponseWriter, 
 	return fmt.Errorf("all sources failed")
 }
 
-func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWriter, algo, hash, source string, candidateSources []string, headersWritten *bool) error {
-	slog.Info("Fetching from source", "url", source, "hash", hash)
+func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWriter, id utils.Hash, source string, candidateSources []string, headersWritten *bool) error {
+	slog.Info("Fetching from source", "url", source, "id", id)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 	if err != nil {
@@ -196,7 +199,7 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	// Found it! Start streaming.
 
 	// 1. Prepare Storage
-	tmpFile, commit, err := h.Local.BeginWrite(algo, hash)
+	tmpFile, commit, err := h.Local.BeginWrite(id.Algo, id.Hash)
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -212,7 +215,7 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	}()
 
 	// 2. Set Headers
-	h.setCacheHeaders(w, algo, hash)
+	h.setCacheHeaders(w, id)
 	if resp.ContentLength > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", resp.ContentLength))
 	}
@@ -220,7 +223,7 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	*headersWritten = true
 
 	// 3. Stream
-	hasher, err := hashutil.GetHasher(algo)
+	hasher, err := hashutil.GetHasher(id.Algo)
 	if err != nil {
 		return err
 	}
@@ -234,8 +237,8 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 
 	// 4. Verify Hash
 	actualHash := hex.EncodeToString(hasher.Sum(nil))
-	if actualHash != hash {
-		errutil.ReportError(fmt.Errorf("hash mismatch"), "Hash mismatch", "expected", hash, "got", actualHash)
+	if actualHash != id.Hash {
+		errutil.ReportError(fmt.Errorf("hash mismatch"), "Hash mismatch", "expected", id.Hash, "got", actualHash)
 		panic(http.ErrAbortHandler)
 	}
 
@@ -275,7 +278,7 @@ func (h *CASHandler) parseSourceUrls(headers http.Header) []string {
 	return urls
 }
 
-func (h *CASHandler) setCacheHeaders(w http.ResponseWriter, algo, hash string) {
+func (h *CASHandler) setCacheHeaders(w http.ResponseWriter, id utils.Hash) {
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	w.Header().Set("Link", fmt.Sprintf("</fetch/%s/%s>; rel=\"canonical\"", algo, hash))
+	w.Header().Set("Link", fmt.Sprintf("</fetch/%s/%s>; rel=\"canonical\"", id.Algo, id.Hash))
 }

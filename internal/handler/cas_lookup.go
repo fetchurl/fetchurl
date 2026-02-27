@@ -32,20 +32,22 @@ func (h *CASLookupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path format. Expected /{algo}/{hash}", http.StatusBadRequest)
 		return
 	}
-	algo := hashutil.NormalizeAlgo(parts[0])
-	hash := parts[1]
 
-	if !hashutil.IsSupported(algo) {
-		http.Error(w, fmt.Sprintf("Unsupported hash algorithm: %s", algo), http.StatusBadRequest)
+	id := utils.Hash{
+		Algo: hashutil.NormalizeAlgo(parts[0]),
+		Hash: parts[1],
+	}
+
+	if !hashutil.IsSupported(id.Algo) {
+		http.Error(w, fmt.Sprintf("Unsupported hash algorithm: %s", id.Algo), http.StatusBadRequest)
 		return
 	}
 
-	key := algo + ":" + hash
-	sources, ok := h.Sources.Get(key)
+	sources, ok := h.Sources.Get(id.String())
 	if !ok {
 		http.Error(w, "Hash not found in source map", http.StatusNotFound)
 		return
 	}
 
-	h.CAS.Serve(w, r, algo, hash, sources)
+	h.CAS.Serve(w, r, id, sources)
 }
