@@ -56,29 +56,26 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Collect candidates from headers
 	candidateSources := h.parseSourceUrls(r.Header)
 
-	// Collect sources to try (Upstreams + Candidates)
-	var sourcesToTry []string
+	// Shuffle dynamic sources (per DESIGN.md constraint 3)
+	rand.Shuffle(len(candidateSources), func(i, j int) {
+		candidateSources[i], candidateSources[j] = candidateSources[j], candidateSources[i]
+	})
 
-	// Add configured upstreams first
+	h.Serve(w, r, algo, hash, candidateSources)
+}
+
+// Serve handles the fetch logic for a given algo/hash with candidate source URLs.
+// It checks the local cache first, then tries upstreams followed by the candidate sources.
+// candidateSources are also forwarded as X-Source-Urls to upstreams.
+func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, algo, hash string, candidateSources []string) {
+	// Build sources to try: upstreams first, then candidates
+	var sourcesToTry []string
 	for _, u := range h.Upstreams {
 		base := strings.TrimRight(u, "/")
 		sourceUrl := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, algo, hash)
 		sourcesToTry = append(sourcesToTry, sourceUrl)
 	}
-
-	// Add dynamic sources from headers (shuffled per DESIGN.md constraint 3)
-	rand.Shuffle(len(candidateSources), func(i, j int) {
-		candidateSources[i], candidateSources[j] = candidateSources[j], candidateSources[i]
-	})
 	sourcesToTry = append(sourcesToTry, candidateSources...)
-
-	h.Serve(w, r, algo, hash, sourcesToTry, candidateSources)
-}
-
-// Serve handles the fetch logic for a given algo/hash with explicit source URLs.
-// It checks the local cache first, then tries the provided sources.
-// candidateSources are forwarded as X-Source-Urls to upstreams.
-func (h *CASHandler) Serve(w http.ResponseWriter, r *http.Request, algo, hash string, sourcesToTry, candidateSources []string) {
 	// 1. Try Local Cache
 	exists, err := h.Local.Exists(r.Context(), algo, hash)
 	if err != nil {

@@ -47,5 +47,5 @@ func (h *CASLookupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.CAS.Serve(w, r, algo, hash, sources, nil)
+	h.CAS.Serve(w, r, algo, hash, sources)
 }
