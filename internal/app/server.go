@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
 	"time"
+
+	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/proxy"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
 	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
@@ -82,13 +84,14 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	mux := http.NewServeMux()
 	// Mux handling: /api/fetchurl/{algo}/{hash}
 	mux.Handle("/api/fetchurl/", http.StripPrefix("/api/fetchurl", casHandler))
+	mux.Handle("/api/registry/", http.StripPrefix("/api/registry", proxy.GetRewriter(casHandler)))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("Starting server (CAS)", "addr", addr, "cache_dir", cfg.CacheDir, "upstreams", len(cfg.Upstreams))
 
 	server := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: LogMiddleware(mux),
 	}
 
 	cleanup := func() {
@@ -96,4 +99,11 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	}
 
 	return server, cleanup, nil
+}
+
+func LogMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slog.Info("request", "method", r.Method, "path", r.URL.Path)
+		h.ServeHTTP(w, r)
+	})
 }
