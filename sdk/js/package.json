@@ -23,9 +23,16 @@
 		"directory": "sdk/js"
 	},
 	"homepage": "https://github.com/lucasew/fetchurl",
+	"scripts": {
+		"lint": "eslint .",
+		"format": "prettier --write ."
+	},
 	"devDependencies": {
-		"biome": "^0.3.3",
+		"@eslint/js": "^10.0.1",
 		"eslint": "^10.0.2",
+		"eslint-config-prettier": "^10.1.8",
+		"globals": "^17.3.0",
+		"prettier": "^3.8.1",
 		"testcontainers": "^10.6.0"
 	}
 }
