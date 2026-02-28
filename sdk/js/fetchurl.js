@@ -24,59 +24,59 @@
 // --- Errors ---
 
 export class FetchUrlError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'FetchUrlError';
-  }
+	constructor(message) {
+		super(message);
+		this.name = "FetchUrlError";
+	}
 }
 
 export class UnsupportedAlgorithmError extends FetchUrlError {
-  constructor(algo) {
-    super(`unsupported algorithm: ${algo}`);
-    this.name = 'UnsupportedAlgorithmError';
-    this.algo = algo;
-  }
+	constructor(algo) {
+		super(`unsupported algorithm: ${algo}`);
+		this.name = "UnsupportedAlgorithmError";
+		this.algo = algo;
+	}
 }
 
 export class HashMismatchError extends FetchUrlError {
-  constructor(expected, actual) {
-    super(`hash mismatch: expected ${expected}, got ${actual}`);
-    this.name = 'HashMismatchError';
-    this.expected = expected;
-    this.actual = actual;
-  }
+	constructor(expected, actual) {
+		super(`hash mismatch: expected ${expected}, got ${actual}`);
+		this.name = "HashMismatchError";
+		this.expected = expected;
+		this.actual = actual;
+	}
 }
 
 export class AllSourcesFailedError extends FetchUrlError {
-  constructor(lastError = null) {
-    super('all sources failed');
-    this.name = 'AllSourcesFailedError';
-    this.lastError = lastError;
-  }
+	constructor(lastError = null) {
+		super("all sources failed");
+		this.name = "AllSourcesFailedError";
+		this.lastError = lastError;
+	}
 }
 
 export class PartialWriteError extends FetchUrlError {
-  constructor(cause) {
-    super(`partial write: ${cause?.message ?? cause}`);
-    this.name = 'PartialWriteError';
-    this.cause = cause;
-  }
+	constructor(cause) {
+		super(`partial write: ${cause?.message ?? cause}`);
+		this.name = "PartialWriteError";
+		this.cause = cause;
+	}
 }
 
 export class MissingSourceUrlsError extends FetchUrlError {
-  constructor() {
-    super('sourceUrls is required');
-    this.name = 'MissingSourceUrlsError';
-  }
+	constructor() {
+		super("sourceUrls is required");
+		this.name = "MissingSourceUrlsError";
+	}
 }
 
 // --- Algorithm helpers ---
 
 /** Map from normalized algo name to Web Crypto algorithm identifier. */
 const WEBCRYPTO_ALGOS = {
-  sha1: 'SHA-1',
-  sha256: 'SHA-256',
-  sha512: 'SHA-512',
+	sha1: "SHA-1",
+	sha256: "SHA-256",
+	sha512: "SHA-512",
 };
 
 /**
@@ -85,7 +85,7 @@ const WEBCRYPTO_ALGOS = {
  * @returns {string}
  */
 export function normalizeAlgo(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+	return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /**
@@ -94,7 +94,7 @@ export function normalizeAlgo(name) {
  * @returns {boolean}
  */
 export function isSupported(algo) {
-  return normalizeAlgo(algo) in WEBCRYPTO_ALGOS;
+	return normalizeAlgo(algo) in WEBCRYPTO_ALGOS;
 }
 
 // --- SFV helpers (RFC 8941 string lists) ---
@@ -105,9 +105,9 @@ export function isSupported(algo) {
  * @returns {string}
  */
 export function encodeSourceUrls(urls) {
-  return urls
-    .map((url) => `"${url.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
-    .join(', ');
+	return urls
+		.map((url) => `"${url.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+		.join(", ");
 }
 
 /**
@@ -116,43 +116,43 @@ export function encodeSourceUrls(urls) {
  * @returns {string[]}
  */
 export function parseFetchurlServer(value) {
-  value = value.trim();
-  if (value === '') return [];
-  if (!value.startsWith('"')) {
-    return [value];
-  }
-  const results = [];
-  let i = 0;
-  while (i < value.length) {
-    while (i < value.length && (value[i] === ' ' || value[i] === '\t')) i++;
-    if (i >= value.length) break;
+	value = value.trim();
+	if (value === "") return [];
+	if (!value.startsWith('"')) {
+		return [value];
+	}
+	const results = [];
+	let i = 0;
+	while (i < value.length) {
+		while (i < value.length && (value[i] === " " || value[i] === "\t")) i++;
+		if (i >= value.length) break;
 
-    if (value[i] !== '"') {
-      while (i < value.length && value[i] !== ',') i++;
-      if (i < value.length) i++;
-      continue;
-    }
-    i++;
+		if (value[i] !== '"') {
+			while (i < value.length && value[i] !== ",") i++;
+			if (i < value.length) i++;
+			continue;
+		}
+		i++;
 
-    let s = '';
-    while (i < value.length) {
-      if (value[i] === '\\' && i + 1 < value.length) {
-        s += value[i + 1];
-        i += 2;
-      } else if (value[i] === '"') {
-        i++;
-        break;
-      } else {
-        s += value[i];
-        i++;
-      }
-    }
-    results.push(s);
+		let s = "";
+		while (i < value.length) {
+			if (value[i] === "\\" && i + 1 < value.length) {
+				s += value[i + 1];
+				i += 2;
+			} else if (value[i] === '"') {
+				i++;
+				break;
+			} else {
+				s += value[i];
+				i++;
+			}
+		}
+		results.push(s);
 
-    while (i < value.length && value[i] !== ',') i++;
-    if (i < value.length) i++;
-  }
-  return results;
+		while (i < value.length && value[i] !== ",") i++;
+		if (i < value.length) i++;
+	}
+	return results;
 }
 
 // --- Hashing ---
@@ -163,15 +163,15 @@ export function parseFetchurlServer(value) {
  */
 let _nodeCrypto = null;
 try {
-  _nodeCrypto = await import('node:crypto');
+	_nodeCrypto = await import("node:crypto");
 } catch {
-  // Not available (browser) — will use Web Crypto fallback
+	// Not available (browser) — will use Web Crypto fallback
 }
 
 function toHex(buffer) {
-  return Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+	return Array.from(new Uint8Array(buffer))
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
 }
 
 /**
@@ -184,36 +184,36 @@ function toHex(buffer) {
  * @returns {{ update(chunk: Uint8Array): void, finish(): Promise<string> }}
  */
 export function createHasher(algo) {
-  if (_nodeCrypto) {
-    const h = _nodeCrypto.createHash(algo);
-    return {
-      update(chunk) {
-        h.update(chunk);
-      },
-      async finish() {
-        return h.digest('hex');
-      },
-    };
-  }
-  // Web Crypto fallback — accumulate and hash at the end
-  const chunks = [];
-  let totalLen = 0;
-  return {
-    update(chunk) {
-      chunks.push(new Uint8Array(chunk));
-      totalLen += chunk.byteLength;
-    },
-    async finish() {
-      const full = new Uint8Array(totalLen);
-      let offset = 0;
-      for (const c of chunks) {
-        full.set(c, offset);
-        offset += c.byteLength;
-      }
-      const webAlgo = WEBCRYPTO_ALGOS[algo];
-      return toHex(await crypto.subtle.digest(webAlgo, full));
-    },
-  };
+	if (_nodeCrypto) {
+		const h = _nodeCrypto.createHash(algo);
+		return {
+			update(chunk) {
+				h.update(chunk);
+			},
+			async finish() {
+				return h.digest("hex");
+			},
+		};
+	}
+	// Web Crypto fallback — accumulate and hash at the end
+	const chunks = [];
+	let totalLen = 0;
+	return {
+		update(chunk) {
+			chunks.push(new Uint8Array(chunk));
+			totalLen += chunk.byteLength;
+		},
+		async finish() {
+			const full = new Uint8Array(totalLen);
+			let offset = 0;
+			for (const c of chunks) {
+				full.set(c, offset);
+				offset += c.byteLength;
+			}
+			const webAlgo = WEBCRYPTO_ALGOS[algo];
+			return toHex(await crypto.subtle.digest(webAlgo, full));
+		},
+	};
 }
 
 /**
@@ -223,9 +223,9 @@ export function createHasher(algo) {
  * @returns {Promise<string>} Hex hash.
  */
 export async function hashData(algo, data) {
-  const h = createHasher(algo);
-  h.update(data);
-  return h.finish();
+	const h = createHasher(algo);
+	h.update(data);
+	return h.finish();
 }
 
 /**
@@ -237,10 +237,10 @@ export async function hashData(algo, data) {
  * @throws {HashMismatchError}
  */
 export async function verifyHash(algo, expectedHash, data) {
-  const actual = await hashData(algo, data);
-  if (actual !== expectedHash) {
-    throw new HashMismatchError(expectedHash, actual);
-  }
+	const actual = await hashData(algo, data);
+	if (actual !== expectedHash) {
+		throw new HashMismatchError(expectedHash, actual);
+	}
 }
 
 // --- FetchAttempt ---
@@ -260,91 +260,91 @@ export async function verifyHash(algo, expectedHash, data) {
  * source URLs in random order per spec.
  */
 export class FetchSession {
-  #attempts = [];
-  #current = 0;
-  #algo;
-  #hash;
-  #done = false;
-  #success = false;
+	#attempts = [];
+	#current = 0;
+	#algo;
+	#hash;
+	#done = false;
+	#success = false;
 
-  /**
-   * @param {Object} options
-   * @param {string[]} options.servers - Cache server base URLs.
-   * @param {string} options.algo - Hash algorithm name.
-   * @param {string} options.hash - Expected hex hash.
-   * @param {string[]} options.sourceUrls - Direct source URLs.
-   */
-  constructor({ servers = [], algo, hash, sourceUrls = [] }) {
-    if (typeof process !== 'undefined' && process.env) {
-      servers = parseFetchurlServer(process.env.FETCHURL_SERVER || '');
-    }
+	/**
+	 * @param {Object} options
+	 * @param {string[]} options.servers - Cache server base URLs.
+	 * @param {string} options.algo - Hash algorithm name.
+	 * @param {string} options.hash - Expected hex hash.
+	 * @param {string[]} options.sourceUrls - Direct source URLs.
+	 */
+	constructor({ servers = [], algo, hash, sourceUrls = [] }) {
+		if (typeof process !== "undefined" && process.env) {
+			servers = parseFetchurlServer(process.env.FETCHURL_SERVER || "");
+		}
 
-    if (!Array.isArray(sourceUrls) || sourceUrls.length === 0) {
-      throw new MissingSourceUrlsError();
-    }
+		if (!Array.isArray(sourceUrls) || sourceUrls.length === 0) {
+			throw new MissingSourceUrlsError();
+		}
 
-    this.#algo = normalizeAlgo(algo);
-    if (!isSupported(this.#algo)) {
-      throw new UnsupportedAlgorithmError(this.#algo);
-    }
-    this.#hash = hash;
+		this.#algo = normalizeAlgo(algo);
+		if (!isSupported(this.#algo)) {
+			throw new UnsupportedAlgorithmError(this.#algo);
+		}
+		this.#hash = hash;
 
-    const sourceHeader =
-      sourceUrls.length > 0 ? encodeSourceUrls(sourceUrls) : null;
+		const sourceHeader =
+			sourceUrls.length > 0 ? encodeSourceUrls(sourceUrls) : null;
 
-    for (const server of servers) {
-      const base = server.replace(/\/+$/, '');
-      const url = `${base}/api/fetchurl/${this.#algo}/${hash}`;
-      const headers = {};
-      if (sourceHeader) headers['X-Source-Urls'] = sourceHeader;
-      this.#attempts.push({ url, headers });
-    }
+		for (const server of servers) {
+			const base = server.replace(/\/+$/, "");
+			const url = `${base}/api/fetchurl/${this.#algo}/${hash}`;
+			const headers = {};
+			if (sourceHeader) headers["X-Source-Urls"] = sourceHeader;
+			this.#attempts.push({ url, headers });
+		}
 
-    const shuffled = [...sourceUrls];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    for (const url of shuffled) {
-      this.#attempts.push({ url, headers: {} });
-    }
-  }
+		const shuffled = [...sourceUrls];
+		for (let i = shuffled.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+		}
+		for (const url of shuffled) {
+			this.#attempts.push({ url, headers: {} });
+		}
+	}
 
-  /** Algorithm used (normalized). */
-  get algo() {
-    return this.#algo;
-  }
+	/** Algorithm used (normalized). */
+	get algo() {
+		return this.#algo;
+	}
 
-  /** Expected hash. */
-  get hash() {
-    return this.#hash;
-  }
+	/** Expected hash. */
+	get hash() {
+		return this.#hash;
+	}
 
-  /**
-   * Get the next attempt, or null if session is finished.
-   * If an attempt fails without writing bytes, just call nextAttempt() again.
-   * @returns {FetchAttempt | null}
-   */
-  nextAttempt() {
-    if (this.#done || this.#current >= this.#attempts.length) return null;
-    return this.#attempts[this.#current++];
-  }
+	/**
+	 * Get the next attempt, or null if session is finished.
+	 * If an attempt fails without writing bytes, just call nextAttempt() again.
+	 * @returns {FetchAttempt | null}
+	 */
+	nextAttempt() {
+		if (this.#done || this.#current >= this.#attempts.length) return null;
+		return this.#attempts[this.#current++];
+	}
 
-  /** Mark session as successful. */
-  reportSuccess() {
-    this.#done = true;
-    this.#success = true;
-  }
+	/** Mark session as successful. */
+	reportSuccess() {
+		this.#done = true;
+		this.#success = true;
+	}
 
-  /** Mark that bytes were written before failure. Stops further attempts. */
-  reportPartial() {
-    this.#done = true;
-  }
+	/** Mark that bytes were written before failure. Stops further attempts. */
+	reportPartial() {
+		this.#done = true;
+	}
 
-  /** @returns {boolean} */
-  succeeded() {
-    return this.#success;
-  }
+	/** @returns {boolean} */
+	succeeded() {
+		return this.#success;
+	}
 }
 
 // --- High-level fetch ---
@@ -362,59 +362,60 @@ export class FetchSession {
  * @throws {AllSourcesFailedError|PartialWriteError|UnsupportedAlgorithmError}
  */
 export async function fetchurl({
-  fetch: fetchFn,
-  servers = [],
-  algo,
-  hash,
-  sourceUrls = [],
+	fetch: fetchFn,
+	servers = [],
+	algo,
+	hash,
+	sourceUrls = [],
 }) {
-  const session = new FetchSession({ servers, algo, hash, sourceUrls });
-  let lastError = null;
-  let attempt;
+	const session = new FetchSession({ servers, algo, hash, sourceUrls });
+	let lastError = null;
+	let attempt = session.nextAttempt();
 
-  while ((attempt = session.nextAttempt())) {
-    let resp;
-    try {
-      resp = await fetchFn(attempt.url, { headers: attempt.headers });
-    } catch (e) {
-      lastError = e;
-      continue;
-    }
+	while (attempt) {
+		let resp;
+		try {
+			resp = await fetchFn(attempt.url, { headers: attempt.headers });
+		} catch (e) {
+			lastError = e;
+			continue;
+		}
 
-    if (!resp.ok) {
-      lastError = new FetchUrlError(`unexpected status ${resp.status}`);
-      continue;
-    }
+		if (!resp.ok) {
+			lastError = new FetchUrlError(`unexpected status ${resp.status}`);
+			continue;
+		}
 
-    const hasher = createHasher(session.algo);
-    const chunks = [];
-    let bytesRead = 0;
-    try {
-      for await (const chunk of resp.body) {
-        hasher.update(chunk);
-        chunks.push(new Uint8Array(chunk));
-        bytesRead += chunk.byteLength;
-      }
-      const actualHash = await hasher.finish();
-      if (actualHash !== session.hash) {
-        throw new HashMismatchError(session.hash, actualHash);
-      }
-      const result = new Uint8Array(bytesRead);
-      let offset = 0;
-      for (const c of chunks) {
-        result.set(c, offset);
-        offset += c.byteLength;
-      }
-      session.reportSuccess();
-      return result;
-    } catch (e) {
-      lastError = e;
-      if (bytesRead > 0) {
-        session.reportPartial();
-        throw new PartialWriteError(e);
-      }
-    }
-  }
+		const hasher = createHasher(session.algo);
+		const chunks = [];
+		let bytesRead = 0;
+		try {
+			for await (const chunk of resp.body) {
+				hasher.update(chunk);
+				chunks.push(new Uint8Array(chunk));
+				bytesRead += chunk.byteLength;
+			}
+			const actualHash = await hasher.finish();
+			if (actualHash !== session.hash) {
+				throw new HashMismatchError(session.hash, actualHash);
+			}
+			const result = new Uint8Array(bytesRead);
+			let offset = 0;
+			for (const c of chunks) {
+				result.set(c, offset);
+				offset += c.byteLength;
+			}
+			session.reportSuccess();
+			return result;
+		} catch (e) {
+			lastError = e;
+			if (bytesRead > 0) {
+				session.reportPartial();
+				throw new PartialWriteError(e);
+			}
+		}
+		attempt = session.nextAttempt();
+	}
 
-  throw new AllSourcesFailedError(lastError);
+	throw new AllSourcesFailedError(lastError);
 }
