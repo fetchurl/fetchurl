@@ -9,13 +9,16 @@ description = "Run all linters"
 run = "workspaced codebase lint"
 
 [tasks.fmt]
-depends = ["fmt:*"]
 description = "Format all code"
 run = "workspaced codebase format"
 
 [tasks.test]
-run = "go test -v ./..."
+depends = ["test:*"]
 description = "Run tests"
+
+[tasks."test:go"]
+run = "go test -v ./..."
+description = "Run Go tests"
 
 [tasks."build:fetchurl-image"]
 run = "docker build -t fetchurl:local ."
@@ -39,7 +42,7 @@ dir = "sdk/rust"
 run = "FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- cargo test --test integration"
 description = "Run Rust integration tests with testcontainers (requires docker build)"
 
-[tasks.testcontainers]
+[tasks."test:containers"]
 depends = ["testcontainers:*"]
 description = "Run all testcontainers integration tests"
 
@@ -48,4 +51,17 @@ depends = ["lint", "test"]
 description = "Run CI pipeline"
 
 [tasks.install]
+depends = ["install:*"]
+description = "Install dependencies"
+
+[tasks."install:go"]
 run = "go get ./..."
+description = "Install Go dependencies"
+
+[tasks.codegen]
+depends = ["codegen:*"]
+description = "Run code generation"
+
+[tasks."codegen:go"]
+run = "echo no codegen"
+description = "No Go code generation"

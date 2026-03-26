@@ -44,11 +44,11 @@ jobs:
 
     - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3
 
-    - name: Go get
-      run: go get ./...
+    - name: Install
+      run: mise run install
 
-    - name: Go fmt
-      run: go fmt ./...
+    - name: Codegen
+      run: mise run codegen
 
     - name: Create Pull Request if there is new stuff from updaters
       if: github.event_name != 'pull_request'
@@ -72,8 +72,8 @@ jobs:
           exit 1
         fi
 
-    - name: Run testcontainers
-      run: mise run testcontainers
+    - name: Run CI
+      run: mise run ci
 
     - name: Build binaries
       env:
