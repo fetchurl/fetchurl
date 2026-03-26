@@ -2,6 +2,8 @@
 go = "1.25.6"
 "go:golang.org/x/tools/gopls" = "0.21.0"
 "github:lucasew/workspaced" = "0.1.2"
+golangci-lint = "2.8.0"
+actionlint = "1.7.10"
 
 
 [tasks.lint]
