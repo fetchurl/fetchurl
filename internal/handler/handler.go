@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/lucasew/fetchurl/internal/errutil"
@@ -47,6 +48,12 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	algo := hashutil.NormalizeAlgo(parts[0])
 	hash := parts[1]
+
+	// SECURITY: [CRITICAL] — Validate hash to prevent path traversal
+	if matched, _ := regexp.MatchString("^[a-fA-F0-9]+$", hash); !matched {
+		http.Error(w, "Invalid hash format", http.StatusBadRequest)
+		return
+	}
 
 	if !hashutil.IsSupported(algo) {
 		http.Error(w, fmt.Sprintf("Unsupported hash algorithm: %s", algo), http.StatusBadRequest)

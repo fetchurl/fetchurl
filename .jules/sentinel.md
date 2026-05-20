@@ -1,0 +1,1 @@
+- 2024-05-20: [CRITICAL] Path Traversal via unsanitized URL parameters used in filesystem operations (e.g., hash parameters passed to filepath.Join without format validation).
