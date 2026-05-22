@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+var validHashRegex = regexp.MustCompile("^[a-fA-F0-9]+$")
+
 type CASHandler struct {
 	Local     *repository.LocalRepository
 	Client    *http.Client
@@ -50,7 +52,7 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hash := parts[1]
 
 	// SECURITY: [CRITICAL] — Validate hash to prevent path traversal
-	if matched, _ := regexp.MatchString("^[a-fA-F0-9]+$", hash); !matched {
+	if !validHashRegex.MatchString(hash) {
 		http.Error(w, "Invalid hash format", http.StatusBadRequest)
 		return
 	}
