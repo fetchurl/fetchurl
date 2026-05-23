@@ -29,7 +29,7 @@ class TestIntegration(unittest.TestCase):
         content = b"integration-test"
         hash_hex = sha256hex(content)
 
-        repo_root = Path(__file__).resolve().parents[2]
+        _ = Path(__file__).resolve().parents[2]
         old_env = os.environ.get("FETCHURL_SERVER")
 
         with tempfile.TemporaryDirectory() as tmpdir:
