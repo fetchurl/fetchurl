@@ -80,6 +80,9 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	casHandler := handler.NewCASHandler(localRepo, httpClientForRequests, cfg.Upstreams, appCtx)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/fetchurl/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	// Mux handling: /api/fetchurl/{algo}/{hash}
 	mux.Handle("/api/fetchurl/", http.StripPrefix("/api/fetchurl", casHandler))
 
