@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"fmt"
 	"hash"
+	"slices"
 	"strings"
 )
 
@@ -48,4 +49,13 @@ func GetHasher(name string) (hash.Hash, error) {
 func IsSupported(name string) bool {
 	_, ok := registry[NormalizeAlgo(name)]
 	return ok
+}
+
+func SupportedAlgorithms() []string {
+	algorithms := make([]string, 0, len(registry))
+	for name := range registry {
+		algorithms = append(algorithms, name)
+	}
+	slices.Sort(algorithms)
+	return algorithms
 }
