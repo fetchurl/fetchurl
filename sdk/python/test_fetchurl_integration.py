@@ -74,7 +74,7 @@ class TestIntegration(unittest.TestCase):
                 try:
                     host = server.get_container_host_ip()
                     port = server.get_exposed_port(8080)
-                    os.environ["FETCHURL_SERVER"] = f"\"http://{host}:{port}\""
+                    os.environ["FETCHURL_SERVER"] = f"\"http://{host}:{port}/api/fetchurl\""
 
                     fetchurl.fetch(
                         TimeoutFetcher(),

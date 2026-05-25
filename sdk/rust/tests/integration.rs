@@ -52,7 +52,10 @@ fn integration_fetchurl_server() {
 
     let upstream_dir = write_temp_file(&content);
     let upstream_image = GenericImage::new("python", "3.12-alpine")
-        .with_volume(upstream_dir.to_string_lossy().to_string(), "/srv".to_string())
+        .with_volume(
+            upstream_dir.to_string_lossy().to_string(),
+            "/srv".to_string(),
+        )
         .with_exposed_port(8000)
         .with_wait_for(WaitFor::seconds(1));
     let upstream = docker.run(
@@ -77,11 +80,7 @@ fn integration_fetchurl_server() {
         .with_exposed_port(8080)
         .with_wait_for(WaitFor::seconds(1));
     let server = docker.run(
-        RunnableImage::from((
-            server_image,
-            vec!["server".to_string()],
-        ))
-        .with_network(network_name),
+        RunnableImage::from((server_image, vec!["server".to_string()])).with_network(network_name),
     );
 
     let old_env = env::var("FETCHURL_SERVER").ok();
@@ -89,13 +88,12 @@ fn integration_fetchurl_server() {
     unsafe {
         env::set_var(
             "FETCHURL_SERVER",
-            format!("\"http://127.0.0.1:{host_port}\""),
+            format!("\"http://127.0.0.1:{host_port}/api/fetchurl\""),
         );
     }
 
     let source_url = format!("http://{upstream_name}:8000/file");
-    let mut session =
-        fetchurl::FetchSession::new("sha256", &hash, &[source_url.as_str()]).unwrap();
+    let mut session = fetchurl::FetchSession::new("sha256", &hash, &[source_url.as_str()]).unwrap();
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(10))

@@ -133,7 +133,7 @@ func (c *countingWriter) Write(p []byte) (n int, err error) {
 
 func (f *Fetcher) fetchFromServer(ctx context.Context, server, algo, hashStr string, sourceUrls []string, out io.Writer) error {
 	base := strings.TrimRight(server, "/")
-	u := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, algo, hashStr)
+	u := fmt.Sprintf("%s/%s/%s", base, algo, hashStr)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

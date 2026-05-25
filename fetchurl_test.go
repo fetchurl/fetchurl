@@ -109,7 +109,7 @@ func TestFetcher(t *testing.T) {
 		}))
 		defer server.Close()
 
-		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s\"", server.URL))
+		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s/api/fetchurl\"", server.URL))
 		f := NewFetcher(nil)
 		var out bytes.Buffer
 		err := f.Fetch(t.Context(), FetchOptions{
@@ -139,7 +139,7 @@ func TestFetcher(t *testing.T) {
 		}))
 		defer server.Close()
 
-		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s\"", server.URL))
+		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s/api/fetchurl\"", server.URL))
 		f := NewFetcher(nil)
 		var out bytes.Buffer
 		err := f.Fetch(t.Context(), FetchOptions{
@@ -171,7 +171,7 @@ func TestFetcher(t *testing.T) {
 		}))
 		defer server.Close()
 
-		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s\"", server.URL))
+		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s/api/fetchurl\"", server.URL))
 		f := NewFetcher(nil)
 		var out bytes.Buffer
 		err := f.Fetch(t.Context(), FetchOptions{
@@ -213,7 +213,7 @@ func TestFetcher(t *testing.T) {
 		}))
 		defer server.Close()
 
-		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s\"", server.URL))
+		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s/api/fetchurl\"", server.URL))
 		f := NewFetcher(nil)
 		var out bytes.Buffer
 		err := f.Fetch(t.Context(), FetchOptions{
@@ -233,7 +233,7 @@ func TestFetcher(t *testing.T) {
 		}))
 		defer server.Close()
 
-		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s\"", server.URL))
+		t.Setenv("FETCHURL_SERVER", fmt.Sprintf("\"%s/api/fetchurl\"", server.URL))
 		f := NewFetcher(nil)
 		var out bytes.Buffer
 		err := f.Fetch(t.Context(), FetchOptions{

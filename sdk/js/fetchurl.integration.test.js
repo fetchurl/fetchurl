@@ -61,7 +61,7 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
 
       const host = container.getHost();
       const port = container.getMappedPort(8080);
-      process.env.FETCHURL_SERVER = `"http://${host}:${port}"`;
+      process.env.FETCHURL_SERVER = `"http://${host}:${port}/api/fetchurl"`;
 
       const netName = network.getName();
       const upstreamIp = upstream.getIpAddress(netName);

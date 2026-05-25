@@ -93,7 +93,7 @@ class TestFetchSession(unittest.TestCase):
         with self.assertRaises(fetchurl.UnsupportedAlgorithmError):
             fetchurl.FetchSession("md5", "abc", ["http://src"])
 
-    @patch.dict(os.environ, {"FETCHURL_SERVER": '"http://cache1", "http://cache2"'})
+    @patch.dict(os.environ, {"FETCHURL_SERVER": '"http://cache1/api/fetchurl", "http://cache2/api/fetchurl"'})
     def test_attempt_ordering(self):
         h = sha256hex(b"test")
         session = fetchurl.FetchSession(
@@ -115,7 +115,7 @@ class TestFetchSession(unittest.TestCase):
         self.assertIsNone(session.next_attempt())
         self.assertFalse(session.succeeded())
 
-    @patch.dict(os.environ, {"FETCHURL_SERVER": '"http://cache"'})
+    @patch.dict(os.environ, {"FETCHURL_SERVER": '"http://cache/api/fetchurl"'})
     def test_success_stops(self):
         h = sha256hex(b"test")
         session = fetchurl.FetchSession("sha256", h, ["http://src"])
@@ -124,7 +124,7 @@ class TestFetchSession(unittest.TestCase):
         self.assertTrue(session.succeeded())
         self.assertIsNone(session.next_attempt())
 
-    @patch.dict(os.environ, {"FETCHURL_SERVER": '"http://cache"'})
+    @patch.dict(os.environ, {"FETCHURL_SERVER": '"http://cache/api/fetchurl"'})
     def test_partial_stops(self):
         h = sha256hex(b"test")
         session = fetchurl.FetchSession("sha256", h, ["http://src"])
@@ -235,7 +235,7 @@ class TestFetch(unittest.TestCase):
         try:
             out = io.BytesIO()
             # Set server via env var
-            with patch.dict(os.environ, {"FETCHURL_SERVER": f'"{bad_url}"'}):
+            with patch.dict(os.environ, {"FETCHURL_SERVER": f'"{bad_url}/api/fetchurl"'}):
                 fetchurl.fetch(
                     fetchurl.UrllibFetcher(), "sha256", h, [good_url], out
                 )

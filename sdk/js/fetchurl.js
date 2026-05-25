@@ -274,9 +274,13 @@ export class FetchSession {
    * @param {string} options.hash - Expected hex hash.
    * @param {string[]} options.sourceUrls - Direct source URLs.
    */
-  constructor({ servers = [], algo, hash, sourceUrls = [] }) {
-    if (typeof process !== 'undefined' && process.env) {
-      servers = parseFetchurlServer(process.env.FETCHURL_SERVER || '');
+  constructor({ servers, algo, hash, sourceUrls = [] }) {
+    if (!servers || servers.length === 0) {
+      if (typeof process !== 'undefined' && process.env) {
+        servers = parseFetchurlServer(process.env.FETCHURL_SERVER || '');
+      } else {
+        servers = [];
+      }
     }
 
     if (!Array.isArray(sourceUrls) || sourceUrls.length === 0) {
@@ -294,7 +298,7 @@ export class FetchSession {
 
     for (const server of servers) {
       const base = server.replace(/\/+$/, '');
-      const url = `${base}/api/fetchurl/${this.#algo}/${hash}`;
+      const url = `${base}/${this.#algo}/${hash}`;
       const headers = {};
       if (sourceHeader) headers['X-Source-Urls'] = sourceHeader;
       this.#attempts.push({ url, headers });

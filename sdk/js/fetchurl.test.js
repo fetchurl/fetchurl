@@ -144,7 +144,7 @@ describe('FetchSession', () => {
 
   it('orders servers before sources', async () => {
     const hash = await sha256hex(new TextEncoder().encode('test'));
-    await withEnv('"http://cache1", "http://cache2"', async () => {
+    await withEnv('"http://cache1/api/fetchurl", "http://cache2/api/fetchurl"', async () => {
       const session = new FetchSession({
         algo: 'sha256',
         hash,
@@ -169,7 +169,7 @@ describe('FetchSession', () => {
 
   it('stops after reportSuccess', async () => {
     const hash = await sha256hex(new TextEncoder().encode('test'));
-    await withEnv('"http://cache"', async () => {
+    await withEnv('"http://cache/api/fetchurl"', async () => {
       const session = new FetchSession({
         algo: 'sha256',
         hash,
@@ -184,7 +184,7 @@ describe('FetchSession', () => {
 
   it('stops after reportPartial', async () => {
     const hash = await sha256hex(new TextEncoder().encode('test'));
-    await withEnv('"http://cache"', async () => {
+    await withEnv('"http://cache/api/fetchurl"', async () => {
       const session = new FetchSession({
         algo: 'sha256',
         hash,
@@ -289,7 +289,7 @@ describe('fetchurl()', () => {
       res.end(content);
     });
     try {
-      await withEnv(`"${bad.url}"`, async () => {
+      await withEnv(`"${bad.url}/api/fetchurl"`, async () => {
         const data = await fetchurl({
           fetch,
           algo: 'sha256',

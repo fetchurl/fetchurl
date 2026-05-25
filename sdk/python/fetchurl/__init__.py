@@ -242,7 +242,7 @@ class FetchSession:
 
         for server in servers:
             base = server.rstrip("/")
-            url = f"{base}/api/fetchurl/{algo}/{hash}"
+            url = f"{base}/{algo}/{hash}"
             headers: dict[str, str] = {}
             if source_header:
                 headers["X-Source-Urls"] = source_header

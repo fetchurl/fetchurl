@@ -228,7 +228,7 @@ impl FetchSession {
         // Servers first
         for server in servers {
             let base = server.trim_end_matches('/');
-            let url = format!("{base}/api/fetchurl/{algo}/{hash}");
+            let url = format!("{base}/{algo}/{hash}");
             let mut headers = Vec::new();
             if let Some(ref val) = source_header {
                 headers.push(("X-Source-Urls".to_string(), val.clone()));
@@ -494,7 +494,10 @@ mod tests {
     fn test_session_attempt_ordering() {
         let hash = sha256_hex(b"test");
         unsafe {
-            std::env::set_var("FETCHURL_SERVER", "\"http://cache1\", \"http://cache2\"");
+            std::env::set_var(
+                "FETCHURL_SERVER",
+                "\"http://cache1/api/fetchurl\", \"http://cache2/api/fetchurl\"",
+            );
         }
         let mut session = FetchSession::new("sha256", &hash, &["http://src1"]).unwrap();
 
@@ -520,7 +523,7 @@ mod tests {
     fn test_session_success_stops() {
         let hash = sha256_hex(b"test");
         unsafe {
-            std::env::set_var("FETCHURL_SERVER", "\"http://cache\"");
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache/api/fetchurl\"");
         }
         let mut session = FetchSession::new("sha256", &hash, &["http://src"]).unwrap();
 
@@ -534,7 +537,7 @@ mod tests {
     fn test_session_partial_stops() {
         let hash = sha256_hex(b"test");
         unsafe {
-            std::env::set_var("FETCHURL_SERVER", "\"http://cache\"");
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache/api/fetchurl\"");
         }
         let mut session = FetchSession::new("sha256", &hash, &["http://src"]).unwrap();
 
@@ -548,7 +551,7 @@ mod tests {
     fn test_session_server_has_source_header() {
         let hash = sha256_hex(b"test");
         unsafe {
-            std::env::set_var("FETCHURL_SERVER", "\"http://cache\"");
+            std::env::set_var("FETCHURL_SERVER", "\"http://cache/api/fetchurl\"");
         }
         let mut session =
             FetchSession::new("sha256", &hash, &["http://src1", "http://src2"]).unwrap();

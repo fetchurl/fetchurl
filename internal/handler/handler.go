@@ -84,7 +84,7 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// We need to append /api/fetchurl/{algo}/{hash}
 		// Ensure trailing slash handling
 		base := strings.TrimRight(u, "/")
-		sourceUrl := fmt.Sprintf("%s/api/fetchurl/%s/%s", base, algo, hash)
+		sourceUrl := fmt.Sprintf("%s/%s/%s", base, algo, hash)
 		sourcesToTry = append(sourcesToTry, sourceUrl)
 	}
 
