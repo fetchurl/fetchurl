@@ -81,7 +81,7 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, u := range h.Upstreams {
 		// Construct CAS URL for upstream
 		// Assume upstream is a base URL like http://cache.local:8080
-		// We need to append /api/fetchurl/{algo}/{hash}
+		// We need to append /{algo}/{hash}
 		// Ensure trailing slash handling
 		base := strings.TrimRight(u, "/")
 		sourceUrl := fmt.Sprintf("%s/%s/%s", base, algo, hash)

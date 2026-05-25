@@ -4,7 +4,7 @@
 //!   cargo run --example get -- sha256 HASH --url URL1 --url URL2 -o output.tar.gz
 //!
 //! Set FETCHURL_SERVER to use cache servers:
-//!   FETCHURL_SERVER='"http://cache:8080"' cargo run --example get -- sha256 HASH --url URL
+//!   FETCHURL_SERVER='"http://cache:8080/api/fetchurl"' cargo run --example get -- sha256 HASH --url URL
 
 use std::fs::File;
 use std::io::{self, Write};
