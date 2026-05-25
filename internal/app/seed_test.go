@@ -122,6 +122,9 @@ func TestSeedCacheReportsProgress(t *testing.T) {
 	if !strings.Contains(logText, "msg=\"Finished seeding URL\"") || !strings.Contains(logText, "seeded=3") || !strings.Contains(logText, "skipped=0") {
 		t.Fatalf("missing seed completion slog in %q", logText)
 	}
+	if !strings.Contains(logText, "sha1:"+hashSHA1(content)) || !strings.Contains(logText, "sha256:"+hashSHA256(content)) || !strings.Contains(logText, "sha512:"+hashSHA512(content)) {
+		t.Fatalf("missing hashes in seed completion slog in %q", logText)
+	}
 }
 
 func assertCachedFile(t *testing.T, cacheDir, algo, hash string, want []byte) {

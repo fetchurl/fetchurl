@@ -114,8 +114,9 @@ func seedURL(ctx context.Context, client *http.Client, repo *repository.LocalRep
 	var progressErr error
 	seeded := 0
 	skipped := 0
+	hashSummaries := make([]string, 0)
 	defer func() {
-		finishProgress(seeded, skipped, progressErr)
+		finishProgress(seeded, skipped, hashSummaries, progressErr)
 	}()
 
 	tmpFile, err := os.CreateTemp(cacheDir, "seed-*")
@@ -157,6 +158,7 @@ func seedURL(ctx context.Context, client *http.Client, repo *repository.LocalRep
 
 	for index, algo := range algorithms {
 		hash := hex.EncodeToString(hashers[index].Sum(nil))
+		hashSummaries = append(hashSummaries, fmt.Sprintf("%s:%s", algo, hash))
 		exists, err := repo.Exists(ctx, algo, hash)
 		if err != nil {
 			progressErr = fmt.Errorf("failed to check cache for %s (%s): %w", url, algo, err)
@@ -213,9 +215,9 @@ func buildHashers() ([]hash.Hash, []string, error) {
 	return hashers, algorithms, nil
 }
 
-func startSeedProgress(logger *slog.Logger, out io.Writer, url string, contentLength int64) (io.Writer, func(int, int, error)) {
+func startSeedProgress(logger *slog.Logger, out io.Writer, url string, contentLength int64) (io.Writer, func(int, int, []string, error)) {
 	if out == nil {
-		return io.Discard, func(int, int, error) {}
+		return io.Discard, func(int, int, []string, error) {}
 	}
 
 	logger.Info("Seeding URL", "url", url, "content_length", contentLength)
@@ -235,11 +237,11 @@ func startSeedProgress(logger *slog.Logger, out io.Writer, url string, contentLe
 		}),
 	)
 
-	return bar, func(seeded int, skipped int, err error) {
+	return bar, func(seeded int, skipped int, hashes []string, err error) {
 		if err != nil {
 			logger.Warn("Failed seeding URL", "url", url, "seeded", seeded, "skipped", skipped, "error", err)
 			return
 		}
-		logger.Info("Finished seeding URL", "url", url, "seeded", seeded, "skipped", skipped)
+		logger.Info("Finished seeding URL", "url", url, "seeded", seeded, "skipped", skipped, "hashes", hashes)
 	}
 }
