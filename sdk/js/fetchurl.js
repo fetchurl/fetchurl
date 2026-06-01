@@ -23,6 +23,10 @@
 
 // --- Errors ---
 
+/**
+ * Base error class for all exceptions thrown by the fetchurl SDK.
+ * Used to distinguish internal protocol errors from standard network errors.
+ */
 export class FetchUrlError extends Error {
   constructor(message) {
     super(message);
@@ -30,6 +34,10 @@ export class FetchUrlError extends Error {
   }
 }
 
+/**
+ * Thrown when the requested hashing algorithm is not supported by the environment.
+ * The SDK currently mandates algorithms compatible with Web Crypto API.
+ */
 export class UnsupportedAlgorithmError extends FetchUrlError {
   constructor(algo) {
     super(`unsupported algorithm: ${algo}`);
@@ -38,6 +46,10 @@ export class UnsupportedAlgorithmError extends FetchUrlError {
   }
 }
 
+/**
+ * Thrown when the downloaded content's hash does not match the expected hash.
+ * This indicates potential data corruption or a malicious source.
+ */
 export class HashMismatchError extends FetchUrlError {
   constructor(expected, actual) {
     super(`hash mismatch: expected ${expected}, got ${actual}`);
@@ -47,6 +59,10 @@ export class HashMismatchError extends FetchUrlError {
   }
 }
 
+/**
+ * Thrown when all available cache servers and fallback direct URLs have been exhausted
+ * without successfully retrieving and verifying the requested file.
+ */
 export class AllSourcesFailedError extends FetchUrlError {
   constructor(lastError = null) {
     super('all sources failed');
@@ -55,6 +71,10 @@ export class AllSourcesFailedError extends FetchUrlError {
   }
 }
 
+/**
+ * Thrown when a network error or hash mismatch occurs after some chunks have already
+ * been written/processed. This prevents automatic retries since the stream state is compromised.
+ */
 export class PartialWriteError extends FetchUrlError {
   constructor(cause) {
     super(`partial write: ${cause?.message ?? cause}`);
@@ -63,6 +83,10 @@ export class PartialWriteError extends FetchUrlError {
   }
 }
 
+/**
+ * Thrown when direct source URLs are omitted in the fetch request.
+ * The fetchurl protocol requires at least one source URL as a fallback if the cache misses.
+ */
 export class MissingSourceUrlsError extends FetchUrlError {
   constructor() {
     super('sourceUrls is required');
@@ -256,8 +280,14 @@ export async function verifyHash(algo, expectedHash, data) {
 /**
  * State machine driving the fetchurl client protocol.
  *
- * Servers are tried first (with X-Source-Urls), then direct
- * source URLs in random order per spec.
+ * It manages the fallback sequence for retrieving content:
+ * 1. Configured caching servers are attempted sequentially.
+ *    - The `X-Source-Urls` header is injected so the server can fetch on cache miss.
+ * 2. If all cache servers fail or are unavailable, direct source URLs are attempted.
+ *    - Direct URLs are shuffled and tried in a random order to distribute load as per the protocol spec.
+ *
+ * It also tracks whether any bytes have been written (`#done` logic for `PartialWriteError`),
+ * ensuring the client does not retry mid-stream.
  */
 export class FetchSession {
   #attempts = [];
