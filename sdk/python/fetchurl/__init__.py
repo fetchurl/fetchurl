@@ -40,11 +40,13 @@ from typing import BinaryIO, Protocol, runtime_checkable
 
 
 class FetchUrlError(Exception):
-    """Base exception for fetchurl SDK."""
+    """Base exception for fetchurl SDK. All SDK-specific errors inherit from this."""
 
 
 class UnsupportedAlgorithmError(FetchUrlError):
-    """The requested hash algorithm is not supported."""
+    """Raised during initialization if the provided hash algorithm is not in the whitelist (e.g., md5).
+    This prevents unnecessary network requests for algorithms the server or client cannot verify.
+    """
 
     def __init__(self, algo: str):
         self.algo = algo
@@ -52,7 +54,9 @@ class UnsupportedAlgorithmError(FetchUrlError):
 
 
 class HashMismatchError(FetchUrlError):
-    """The content hash does not match the expected hash."""
+    """Triggered post-download when the computed hash of the response body differs from the requested hash.
+    Indicates potential data corruption in transit or cache poisoning.
+    """
 
     def __init__(self, expected: str, actual: str):
         self.expected = expected
@@ -61,7 +65,9 @@ class HashMismatchError(FetchUrlError):
 
 
 class AllSourcesFailedError(FetchUrlError):
-    """All servers and sources failed to provide the content."""
+    """Raised when the client exhausts all configured cache servers and direct source URLs without a successful fetch.
+    Wraps the last encountered network or validation error.
+    """
 
     def __init__(self, last_error: Exception | None = None):
         self.last_error = last_error
@@ -69,7 +75,9 @@ class AllSourcesFailedError(FetchUrlError):
 
 
 class PartialWriteError(FetchUrlError):
-    """Bytes were written before failure; output is tainted."""
+    """Raised if an error occurs mid-stream after some bytes have already been written to the destination.
+    Signals to the caller that the output stream is tainted and cannot be reused for fallback attempts.
+    """
 
     def __init__(self, cause: Exception):
         self.cause = cause
@@ -77,7 +85,9 @@ class PartialWriteError(FetchUrlError):
 
 
 class MissingSourceUrlsError(FetchUrlError):
-    """Source URLs are required by the protocol."""
+    """Raised during session setup if no fallback direct URLs are provided.
+    The spec requires at least one source URL to guarantee availability if the cache misses.
+    """
 
     def __init__(self):
         super().__init__("source_urls is required")
@@ -89,12 +99,16 @@ _SUPPORTED_ALGOS = {"sha1", "sha256", "sha512"}
 
 
 def normalize_algo(name: str) -> str:
-    """Normalize algorithm name per spec: lowercase, only [a-z0-9]."""
+    """Normalizes an algorithm identifier to ensure cache directory consistency.
+    Converts inputs like 'SHA-256' to 'sha256' by removing non-alphanumeric characters and lowercasing.
+    """
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
 def is_supported(algo: str) -> bool:
-    """Check if a hash algorithm is supported."""
+    """Verifies whether the normalized algorithm name is supported by the client implementation.
+    Restricts usage to known-safe algorithms (e.g. sha1, sha256, sha512) to prevent unsupported hash attempts.
+    """
     return normalize_algo(algo) in _SUPPORTED_ALGOS
 
 
@@ -102,14 +116,18 @@ def is_supported(algo: str) -> bool:
 
 
 def encode_source_urls(urls: list[str]) -> str:
-    """Encode URLs as an RFC 8941 string list for X-Source-Urls header."""
+    """Serializes a list of URLs into an RFC 8941 Structured Field Value (SFV) string list format.
+    This is necessary to safely transmit multiple source URLs in the `X-Source-Urls` HTTP header, escaping characters as required.
+    """
     return ", ".join(
         '"' + url.replace("\\", "\\\\").replace('"', '\\"') + '"' for url in urls
     )
 
 
 def parse_fetchurl_server(value: str) -> list[str]:
-    """Parse FETCHURL_SERVER env var (RFC 8941 string list)."""
+    """Deserializes an RFC 8941 SFV string list representing configured cache servers.
+    Used primarily to parse the `FETCHURL_SERVER` environment variable, handling spaces and escaped quotes.
+    """
     value = value.strip()
     if not value:
         return []
@@ -286,9 +304,10 @@ class FetchSession:
 
 @runtime_checkable
 class Fetcher(Protocol):
-    """Sync HTTP client protocol.
+    """Synchronous HTTP client protocol acting as an adapter for underlying HTTP libraries.
 
-    Implement this to plug in any HTTP library.
+    Enables dependency injection for the `fetch` function, abstracting the actual HTTP request mechanism.
+    Must return an unbuffered readable stream to allow incremental processing without loading the entire payload into memory.
 
     Example with requests::
 
@@ -299,15 +318,16 @@ class Fetcher(Protocol):
     """
 
     def get(self, url: str, headers: dict[str, str]) -> tuple[int, BinaryIO]:
-        """Make a GET request. Returns (status_code, readable_body)."""
+        """Executes a GET request. Returns a tuple of the HTTP status code and a raw binary stream of the response body."""
         ...
 
 
 @runtime_checkable
 class AsyncFetcher(Protocol):
-    """Async HTTP client protocol.
+    """Asynchronous HTTP client protocol acting as an adapter for underlying async HTTP libraries.
 
-    Implement this to plug in any async HTTP library.
+    Provides dependency injection for the `async_fetch` function.
+    Requires returning an asynchronous iterator yielding byte chunks to facilitate non-blocking incremental hashing.
 
     Example with aiohttp::
 
@@ -323,7 +343,7 @@ class AsyncFetcher(Protocol):
     async def get(
         self, url: str, headers: dict[str, str]
     ) -> tuple[int, AsyncIterator[bytes]]:
-        """Make a GET request. Returns (status_code, async_body_chunks)."""
+        """Executes an async GET request. Returns the HTTP status code and an asynchronous iterator of byte chunks."""
         ...
 
 
@@ -331,7 +351,9 @@ class AsyncFetcher(Protocol):
 
 
 class UrllibFetcher:
-    """Fetcher using urllib.request (stdlib, zero dependencies)."""
+    """A synchronous Fetcher implementation utilizing Python's built-in `urllib.request`.
+    Serves as the zero-dependency default client, ensuring the SDK functions out-of-the-box without external libraries.
+    """
 
     def get(self, url: str, headers: dict[str, str]) -> tuple[int, BinaryIO]:
         import urllib.error
@@ -357,9 +379,15 @@ def fetch(
     source_urls: list[str],
     out: BinaryIO,
 ) -> None:
-    """High-level sync fetch. Handles the full protocol loop.
+    """Orchestrates the synchronous fetching and validation protocol.
 
-    Raises AllSourcesFailedError or PartialWriteError on failure.
+    It sequentially attempts to retrieve content from configured cache servers, followed by the provided source URLs.
+    Successfully downloaded content is continuously piped to the `out` stream while being incrementally hashed.
+    Side effect: writes directly to the `out` object. If execution fails midway, `out` contains a partial payload.
+
+    Raises:
+        PartialWriteError: When the connection drops or validation fails after writing initial bytes.
+        AllSourcesFailedError: When all fallback options are exhausted.
     """
     session = FetchSession(algo, hash, source_urls)
     last_error: Exception | None = None
@@ -398,9 +426,15 @@ async def async_fetch(
     source_urls: list[str],
     out: BinaryIO,
 ) -> None:
-    """High-level async fetch. Handles the full protocol loop.
+    """Orchestrates the asynchronous fetching and validation protocol.
 
-    Raises AllSourcesFailedError or PartialWriteError on failure.
+    Operates identically to `fetch` but utilizes the `AsyncFetcher` protocol for non-blocking I/O.
+    The response body is streamed into the synchronous `out` writer while incrementally hashed.
+    Side effect: writes directly to the `out` object, potentially leaving a partial write on failure.
+
+    Raises:
+        PartialWriteError: When the connection drops or validation fails after writing initial bytes.
+        AllSourcesFailedError: When all fallback options are exhausted.
     """
     session = FetchSession(algo, hash, source_urls)
     last_error: Exception | None = None
