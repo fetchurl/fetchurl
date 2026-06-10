@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/eviction/policy"
+
 )
 
 // Manager manages cache eviction by coordinating between storage usage,
@@ -20,7 +20,7 @@ import (
 // It runs a background loop to periodically enforce these policies.
 type Manager struct {
 	cacheDir     string
-	policies     []policy.Policy
+	policies     []Policy
 	strategy     Strategy
 	currentBytes atomic.Int64
 	interval     time.Duration
@@ -29,7 +29,7 @@ type Manager struct {
 // NewManager creates a new Manager instance.
 //
 // It does not automatically start the eviction loop; call Start() to begin background processing.
-func NewManager(cacheDir string, policies []policy.Policy, interval time.Duration, strategy Strategy) *Manager {
+func NewManager(cacheDir string, policies []Policy, interval time.Duration, strategy Strategy) *Manager {
 	return &Manager{
 		cacheDir: cacheDir,
 		policies: policies,

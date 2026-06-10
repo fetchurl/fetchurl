@@ -1,4 +1,4 @@
-package minfree
+package eviction
 
 import (
 	"fmt"
@@ -7,12 +7,12 @@ import (
 )
 
 // Policy triggers eviction when disk free space is below a threshold.
-type Policy struct {
+type MinFreePolicy struct {
 	Path         string
 	MinFreeBytes int64
 }
 
-func (m *Policy) BytesToFree(currentSize int64) (int64, error) {
+func (m *MinFreePolicy) BytesToFree(currentSize int64) (int64, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(m.Path, &stat); err != nil {
 		return 0, fmt.Errorf("failed to check disk space: %w", err)

@@ -7,9 +7,6 @@ import (
 	"time"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
-	"github.com/lucasew/fetchurl/internal/eviction/lru"
-	"github.com/lucasew/fetchurl/internal/eviction/policy"
-	"github.com/lucasew/fetchurl/internal/eviction/policy/maxsize"
 )
 
 func TestManager(t *testing.T) {
@@ -17,8 +14,8 @@ func TestManager(t *testing.T) {
 	maxBytes := int64(50)
 	interval := 10 * time.Millisecond
 
-	strat := lru.New()
-	policies := []policy.Policy{&maxsize.Policy{MaxBytes: maxBytes}}
+	strat := eviction.NewLRU()
+	policies := []eviction.Policy{&eviction.MaxSizePolicy{MaxBytes: maxBytes}}
 	mgr := eviction.NewManager(cacheDir, policies, interval, strat)
 
 	// Create some dummy files

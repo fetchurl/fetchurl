@@ -11,10 +11,6 @@ import (
 	"time"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
-	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
-	"github.com/lucasew/fetchurl/internal/eviction/policy"
-	"github.com/lucasew/fetchurl/internal/eviction/policy/maxsize"
-	"github.com/lucasew/fetchurl/internal/eviction/policy/minfree"
 	"github.com/lucasew/fetchurl/internal/handler"
 	"github.com/lucasew/fetchurl/internal/repository"
 )
@@ -37,16 +33,16 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	}
 
 	// Setup Policies
-	var policies []policy.Policy
+	var policies []eviction.Policy
 
 	if cfg.MaxCacheSize > 0 {
 		slog.Info("Adding MaxCacheSize policy", "max_size", cfg.MaxCacheSize)
-		policies = append(policies, &maxsize.Policy{MaxBytes: cfg.MaxCacheSize})
+		policies = append(policies, &eviction.MaxSizePolicy{MaxBytes: cfg.MaxCacheSize})
 	}
 
 	if cfg.MinFreeSpace > 0 {
 		slog.Info("Adding MinFreeSpace policy", "min_free", cfg.MinFreeSpace)
-		policies = append(policies, &minfree.Policy{
+		policies = append(policies, &eviction.MinFreePolicy{
 			Path:         cfg.CacheDir,
 			MinFreeBytes: cfg.MinFreeSpace,
 		})

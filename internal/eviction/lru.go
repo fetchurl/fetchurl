@@ -1,13 +1,12 @@
-package lru
+package eviction
 
 import (
 	"container/list"
 	"sync"
 
-	"github.com/lucasew/fetchurl/internal/eviction"
 )
 
-// LRU implements the eviction.Strategy interface using Least Recently Used logic.
+// LRU implements the Strategy interface using Least Recently Used logic.
 //
 // It maintains a doubly-linked list where the front is the Most Recently Used (MRU) item
 // and the back is the Least Recently Used (LRU) item.
@@ -24,12 +23,12 @@ type entry struct {
 }
 
 func init() {
-	eviction.Register("lru", func() eviction.Strategy {
-		return New()
+	Register("lru", func() Strategy {
+		return NewLRU()
 	})
 }
 
-func New() *LRU {
+func NewLRU() *LRU {
 	return &LRU{
 		list:  list.New(),
 		items: make(map[string]*list.Element),
@@ -86,18 +85,18 @@ func (l *LRU) Remove(key string) {
 //
 // It scans from the back of the list (LRU) towards the front.
 // Note: This method does NOT remove the items from the list; the caller must explicitly call Remove().
-func (l *LRU) GetVictims(currentSize int64, targetSize int64) []eviction.Victim {
+func (l *LRU) GetVictims(currentSize int64, targetSize int64) []Victim {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	var victims []eviction.Victim
+	var victims []Victim
 	size := currentSize
 
 	// Traverse from back without modifying
 	elem := l.list.Back()
 	for size > targetSize && elem != nil {
 		ent := elem.Value.(*entry)
-		victims = append(victims, eviction.Victim{Key: ent.key, Size: ent.size})
+		victims = append(victims, Victim{Key: ent.key, Size: ent.size})
 		size -= ent.size
 		elem = elem.Prev()
 	}

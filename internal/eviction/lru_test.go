@@ -1,11 +1,12 @@
-package lru
+package eviction_test
 
 import (
 	"testing"
+	"github.com/lucasew/fetchurl/internal/eviction"
 )
 
 func TestLRU(t *testing.T) {
-	l := New()
+	l := eviction.NewLRU()
 
 	l.OnAdd("a", 10)
 	l.OnAdd("b", 20)
@@ -50,7 +51,7 @@ func TestLRU(t *testing.T) {
 }
 
 func TestLRU_Remove(t *testing.T) {
-	l := New()
+	l := eviction.NewLRU()
 	l.OnAdd("a", 10)
 	l.Remove("a")
 

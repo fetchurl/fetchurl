@@ -1,4 +1,4 @@
-package policy
+package eviction
 
 // Policy defines the interface for checking if eviction is needed.
 type Policy interface {
