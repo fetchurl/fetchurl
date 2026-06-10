@@ -374,19 +374,21 @@ export async function fetchurl({
 }) {
   const session = new FetchSession({ servers, algo, hash, sourceUrls });
   let lastError = null;
-  let attempt;
+  let attempt = session.nextAttempt();
 
-  while ((attempt = session.nextAttempt())) {
+  while (attempt) {
     let resp;
     try {
       resp = await fetchFn(attempt.url, { headers: attempt.headers });
     } catch (e) {
       lastError = e;
+      attempt = session.nextAttempt();
       continue;
     }
 
     if (!resp.ok) {
       lastError = new FetchUrlError(`unexpected status ${resp.status}`);
+      attempt = session.nextAttempt();
       continue;
     }
 

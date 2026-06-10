@@ -20,3 +20,4 @@ terminates the application with `os.Exit(1)`.
 
 Error Handling / Configuration
 - 2026-06-10: Replace bare panic() calls during startup with errutil.ReportError followed by os.Exit(1) to ensure centralized error handling.
+- 2026-06-10: Refactor JS SDK while-loop assignment expression to resolve Biome lint assignment in condition error.
