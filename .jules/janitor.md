@@ -19,3 +19,4 @@ terminates the application with `os.Exit(1)`.
 ## Pattern
 
 Error Handling / Configuration
+- 2026-06-10: Replace bare panic() calls during startup with errutil.ReportError followed by os.Exit(1) to ensure centralized error handling.

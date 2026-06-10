@@ -75,12 +75,14 @@ func init() {
 
 func mustBindEnv(key, env string) {
 	if err := viper.BindEnv(key, env); err != nil {
-		panic(fmt.Sprintf("failed to bind env %q: %v", env, err))
+		errutil.ReportError(err, fmt.Sprintf("failed to bind env %q", env))
+		os.Exit(1)
 	}
 }
 
 func mustBindPFlag(key string, flag *pflag.Flag) {
 	if err := viper.BindPFlag(key, flag); err != nil {
-		panic(fmt.Sprintf("failed to bind flag %q: %v", key, err))
+		errutil.ReportError(err, fmt.Sprintf("failed to bind flag %q", key))
+		os.Exit(1)
 	}
 }
