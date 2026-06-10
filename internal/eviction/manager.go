@@ -10,8 +10,6 @@ import (
 	"github.com/lucasew/fetchurl/internal/errutil"
 	"sync/atomic"
 	"time"
-
-
 )
 
 // Manager manages cache eviction by coordinating between storage usage,

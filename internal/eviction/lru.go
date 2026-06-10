@@ -3,7 +3,6 @@ package eviction
 import (
 	"container/list"
 	"sync"
-
 )
 
 // LRU implements the Strategy interface using Least Recently Used logic.

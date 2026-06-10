@@ -1,8 +1,8 @@
 package eviction_test
 
 import (
-	"testing"
 	"github.com/lucasew/fetchurl/internal/eviction"
+	"testing"
 )
 
 func TestLRU(t *testing.T) {
