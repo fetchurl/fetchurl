@@ -18,14 +18,23 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// CASHandler implements the core fetchurl protocol server-side logic.
+// It serves Content-Addressable Storage (CAS) requests by locating artifacts
+// based on their hash algorithm and expected hash value.
+//
+// Performance: Uses singleflight to coalesce concurrent requests for the same artifact.
+// Resilience: If missing locally, it fetches from upstreams or X-Source-Urls.
+// Integrity: Hashes the stream on-the-fly and drops connection on mismatch.
 type CASHandler struct {
 	Local     *repository.LocalRepository
 	Client    *http.Client
 	Upstreams []string
-	AppCtx    context.Context // Application context (from Cobra), not request context
+	// AppCtx is tied to the application lifecycle, not the individual request context.
+	AppCtx    context.Context
 	g         singleflight.Group
 }
 
+// NewCASHandler initializes a new CASHandler.
 func NewCASHandler(local *repository.LocalRepository, client *http.Client, upstreams []string, appCtx context.Context) *CASHandler {
 	if client == nil {
 		client = http.DefaultClient
@@ -38,6 +47,12 @@ func NewCASHandler(local *repository.LocalRepository, client *http.Client, upstr
 	}
 }
 
+// ServeHTTP handles the incoming HTTP GET request for a specific artifact.
+// It enforces the path structure /{algo}/{hash} and verifies the algorithm is supported.
+//
+// On a cache miss, it builds a shuffled list of candidate sources.
+// Singleflight ensures that only the first (leader) request performs the external fetch,
+// while concurrent followers wait and serve the result from the local cache.
 func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Expected path: /{algo}/{hash} (stripped prefix)
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -128,6 +143,8 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// serveFromCache streams an already cached file to the client.
+// It sets appropriate Cache-Control headers to make the response immutable.
 func (h *CASHandler) serveFromCache(w http.ResponseWriter, r *http.Request, algo, hash string) {
 	reader, size, err := h.Local.Get(r.Context(), algo, hash)
 	if err != nil {
@@ -146,6 +163,11 @@ func (h *CASHandler) serveFromCache(w http.ResponseWriter, r *http.Request, algo
 	}
 }
 
+// fetchAndStream iterates over candidate sources sequentially to download the artifact.
+//
+// It returns an error if all sources fail or if a failure occurs after the HTTP response
+// headers have already been written to the client. Once headers are written, falling
+// back to another source is impossible, and the connection will be aborted.
 func (h *CASHandler) fetchAndStream(ctx context.Context, w http.ResponseWriter, algo, hash string, sources []string, candidateSources []string, headersWritten *bool) error {
 	for _, source := range sources {
 		err := h.tryFetchFromSource(ctx, w, algo, hash, source, candidateSources, headersWritten)
@@ -160,6 +182,15 @@ func (h *CASHandler) fetchAndStream(ctx context.Context, w http.ResponseWriter, 
 	return fmt.Errorf("all sources failed")
 }
 
+// tryFetchFromSource attempts to fetch the artifact from a single upstream source.
+//
+// It forwards the remaining candidate sources to the upstream via the X-Source-Urls header.
+// If the source responds successfully, this method streams the response body concurrently
+// to the client, the local file, and a hasher.
+//
+// If the streaming finishes and the computed hash/size match expectations, the file
+// is committed to the cache. Any mismatch triggers a panic with http.ErrAbortHandler,
+// immediately dropping the client connection to prevent ingestion of corrupted data.
 func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWriter, algo, hash, source string, candidateSources []string, headersWritten *bool) error {
 	slog.Info("Fetching from source", "url", source, "hash", hash)
 
@@ -259,6 +290,8 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	return nil // Success
 }
 
+// parseSourceUrls extracts and parses the X-Source-Urls header from the request.
+// The header must comply with the RFC 8941 Structured Field Values (sfv) list format.
 func (h *CASHandler) parseSourceUrls(headers http.Header) []string {
 	var urls []string
 	values := headers.Values("X-Source-Urls")
@@ -280,6 +313,7 @@ func (h *CASHandler) parseSourceUrls(headers http.Header) []string {
 	return urls
 }
 
+// setCacheHeaders applies standard HTTP caching headers for CAS objects.
 func (h *CASHandler) setCacheHeaders(w http.ResponseWriter, algo, hash string) {
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("Link", fmt.Sprintf("</fetch/%s/%s>; rel=\"canonical\"", algo, hash))
