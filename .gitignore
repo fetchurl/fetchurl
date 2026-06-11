@@ -2,3 +2,4 @@ cache/
 /fetchurl
 /build
 .codex
+node_modules/
