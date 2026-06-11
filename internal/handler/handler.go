@@ -30,8 +30,8 @@ type CASHandler struct {
 	Client    *http.Client
 	Upstreams []string
 	// AppCtx is tied to the application lifecycle, not the individual request context.
-	AppCtx    context.Context
-	g         singleflight.Group
+	AppCtx context.Context
+	g      singleflight.Group
 }
 
 // NewCASHandler initializes a new CASHandler.
