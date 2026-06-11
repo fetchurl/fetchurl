@@ -22,9 +22,8 @@
     "url": "git+https://github.com/lucasew/fetchurl.git",
     "directory": "sdk/js"
   },
-  "homepage": "https://github.com/lucasew/fetchurl"
-  ,
+  "homepage": "https://github.com/lucasew/fetchurl",
   "devDependencies": {
-    "testcontainers": "^10.6.0"
+    "testcontainers": "^10.28.0"
   }
 }
