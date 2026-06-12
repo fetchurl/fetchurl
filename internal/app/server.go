@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"syscall"
+	"time"
 
 	"github.com/lucasew/fetchurl/internal/errutil"
-	"time"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
 	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
@@ -73,7 +75,62 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	}
 
 	// Create shared HTTP client for outbound requests
-	httpClientForRequests := http.DefaultClient
+	// Use a custom dialer to prevent SSRF
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+
+			// Remove IPv6 zone index if present before parsing
+			// e.g. fe80::1%eth0 -> fe80::1
+			if zoneIdx := len(host) - 1; zoneIdx >= 0 {
+				for i := len(host) - 1; i >= 0; i-- {
+					if host[i] == '%' {
+						host = host[:i]
+						break
+					}
+				}
+			}
+
+			ip := net.ParseIP(host)
+			if ip == nil {
+				// Prevent bypass using malformed IP strings that get resolved weirdly downstream
+				return fmt.Errorf("SSRF prevention: could not parse IP address %s", host)
+			}
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)
+			}
+			// Block AWS metadata IP explicitly just in case
+			if ip.Equal(net.ParseIP("169.254.169.254")) {
+				return fmt.Errorf("SSRF prevention: blocked access to metadata IP %s", ip)
+			}
+			return nil
+		},
+	}
+
+	// Safely clone default transport or create a new one
+	var transport *http.Transport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		transport = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+	}
+	transport.DialContext = dialer.DialContext
+
+	httpClientForRequests := &http.Client{
+		Transport: transport,
+	}
 
 	localRepo := repository.NewLocalRepository(cfg.CacheDir, mgr)
 

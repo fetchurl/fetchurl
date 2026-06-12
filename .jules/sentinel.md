@@ -1,0 +1,1 @@
+- 2026-06-12: [SSRF via HTTP Client: Watch for direct usage of http.DefaultClient without a custom net.Dialer Control function blocking loopback/private/metadata IPs.]
