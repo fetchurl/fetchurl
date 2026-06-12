@@ -47,6 +47,7 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
           .withCommand(['server'])
           .withNetwork(network)
           .withExposedPorts(8080)
+          .withEnvironment({ FETCHURL_ALLOW_PRIVATE_IPS: '1' })
           .withWaitStrategy(Wait.forLogMessage(/Starting server/i))
           .start();
       } else {
@@ -55,6 +56,7 @@ describe('fetchurl integration (testcontainers)', { timeout: 120_000 }, () => {
           .withCommand(['server'])
           .withNetwork(network)
           .withExposedPorts(8080)
+          .withEnvironment({ FETCHURL_ALLOW_PRIVATE_IPS: '1' })
           .withWaitStrategy(Wait.forLogMessage(/Starting server/i))
           .start();
       }

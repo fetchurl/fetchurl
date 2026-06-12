@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"syscall"
+	"time"
 
 	"github.com/lucasew/fetchurl/internal/errutil"
-	"time"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
 	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
@@ -73,7 +75,39 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	}
 
 	// Create shared HTTP client for outbound requests
-	httpClientForRequests := http.DefaultClient
+	// Use a custom dialer to prevent SSRF
+	_, allowPrivate := os.LookupEnv("FETCHURL_ALLOW_PRIVATE_IPS")
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			return ValidateIP(host, allowPrivate)
+		},
+	}
+
+	// Safely clone default transport or create a new one
+	var transport *http.Transport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		transport = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+	}
+	transport.DialContext = dialer.DialContext
+
+	httpClientForRequests := &http.Client{
+		Transport: transport,
+	}
 
 	localRepo := repository.NewLocalRepository(cfg.CacheDir, mgr)
 

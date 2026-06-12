@@ -78,6 +78,7 @@ fn integration_fetchurl_server() {
 
     let server_image = GenericImage::new(name, tag)
         .with_exposed_port(8080)
+        .with_env_var("FETCHURL_ALLOW_PRIVATE_IPS", "1")
         .with_wait_for(WaitFor::seconds(1));
     let server = docker.run(
         RunnableImage::from((server_image, vec!["server".to_string()])).with_network(network_name),
