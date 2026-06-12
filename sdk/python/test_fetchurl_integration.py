@@ -57,6 +57,7 @@ class TestIntegration(unittest.TestCase):
                     DockerContainer(image_ref)
                     .with_command("server")
                     .with_network(net)
+                    .with_env("FETCHURL_ALLOW_PRIVATE_IPS", "1")
                     .with_exposed_ports(8080)
                 ).start()
 

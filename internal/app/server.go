@@ -101,12 +101,18 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 				// Prevent bypass using malformed IP strings that get resolved weirdly downstream
 				return fmt.Errorf("SSRF prevention: could not parse IP address %s", host)
 			}
-			if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)
-			}
-			// Block AWS metadata IP explicitly just in case
-			if ip.Equal(net.ParseIP("169.254.169.254")) {
-				return fmt.Errorf("SSRF prevention: blocked access to metadata IP %s", ip)
+
+			// We skip SSRF checks if the environment explicitly allows testing against private IPs.
+			// This is necessary for testcontainers-based integration tests.
+			_, allowPrivate := os.LookupEnv("FETCHURL_ALLOW_PRIVATE_IPS")
+			if !allowPrivate {
+				if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+					return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)
+				}
+				// Block AWS metadata IP explicitly just in case
+				if ip.Equal(net.ParseIP("169.254.169.254")) {
+					return fmt.Errorf("SSRF prevention: blocked access to metadata IP %s", ip)
+				}
 			}
 			return nil
 		},
