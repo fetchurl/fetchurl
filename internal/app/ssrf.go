@@ -3,10 +3,9 @@ package app
 import (
 	"fmt"
 	"net"
-	"os"
 )
 
-func ValidateIP(host string) error {
+func ValidateIP(host string, allowPrivate bool) error {
 	// Remove IPv6 zone index if present before parsing
 	// e.g. fe80::1%eth0 -> fe80::1
 	if zoneIdx := len(host) - 1; zoneIdx >= 0 {
@@ -24,9 +23,8 @@ func ValidateIP(host string) error {
 		return fmt.Errorf("SSRF prevention: could not parse IP address %s", host)
 	}
 
-	// We skip SSRF checks if the environment explicitly allows testing against private IPs.
+	// We skip SSRF checks if explicitly allowed.
 	// This is necessary for testcontainers-based integration tests.
-	_, allowPrivate := os.LookupEnv("FETCHURL_ALLOW_PRIVATE_IPS")
 	if !allowPrivate {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 			return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)

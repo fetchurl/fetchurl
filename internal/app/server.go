@@ -76,6 +76,7 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 
 	// Create shared HTTP client for outbound requests
 	// Use a custom dialer to prevent SSRF
+	_, allowPrivate := os.LookupEnv("FETCHURL_ALLOW_PRIVATE_IPS")
 	dialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
@@ -84,7 +85,7 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 			if err != nil {
 				return err
 			}
-			return ValidateIP(host)
+			return ValidateIP(host, allowPrivate)
 		},
 	}
 
