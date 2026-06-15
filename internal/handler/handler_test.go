@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lucasew/fetchurl/internal/repository"
@@ -69,7 +71,10 @@ func TestCASHandler(t *testing.T) {
 			t.Errorf("expected body content1, got %s", w.Body.String())
 		}
 
-		// Verify headers
+		// Verify headers (MUST Content-Type + SHOULD Cache-Control on responses)
+		if w.Header().Get("Content-Type") != "application/octet-stream" {
+			t.Errorf("expected Content-Type application/octet-stream, got %s", w.Header().Get("Content-Type"))
+		}
 		if w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 			t.Errorf("expected Cache-Control header, got %s", w.Header().Get("Cache-Control"))
 		}
@@ -97,7 +102,10 @@ func TestCASHandler(t *testing.T) {
 		if w.Body.String() != "content1" {
 			t.Errorf("expected body content1, got %s", w.Body.String())
 		}
-		// Verify headers on cache hit
+		// Verify headers on cache hit (MUST Content-Type still present)
+		if w.Header().Get("Content-Type") != "application/octet-stream" {
+			t.Errorf("expected Content-Type application/octet-stream, got %s", w.Header().Get("Content-Type"))
+		}
 		if w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 			t.Errorf("expected Cache-Control header, got %s", w.Header().Get("Cache-Control"))
 		}
@@ -168,6 +176,39 @@ func TestCASHandler(t *testing.T) {
 		if w.Code != http.StatusBadGateway {
 			// It returns 502 Bad Gateway because fetch failed
 			t.Errorf("expected 502, got %d", w.Code)
+		}
+	})
+
+	t.Run("Long hash rejected (255 limit)", func(t *testing.T) {
+		longHash := strings.Repeat("a", 256)
+		req := httptest.NewRequest("GET", fmt.Sprintf("/sha256/%s", longHash), nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for long hash, got %d", w.Code)
+		}
+	})
+
+	t.Run("Empty hash short-circuit (no sources needed)", func(t *testing.T) {
+		// sha256 of empty input
+		emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		req := httptest.NewRequest("GET", fmt.Sprintf("/sha256/%s", emptyHash), nil)
+		// Deliberately no X-Source-Urls
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for empty hash, got %d. Body: %s", w.Code, w.Body.String())
+		}
+		if w.Header().Get("Content-Type") != "application/octet-stream" {
+			t.Errorf("expected Content-Type octet-stream for empty, got %s", w.Header().Get("Content-Type"))
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("expected zero-length body for empty hash, got len=%d", w.Body.Len())
+		}
+		// Should have materialized the file for future cache hits
+		if exists, _ := localRepo.Exists(context.Background(), "sha256", emptyHash); !exists {
+			t.Error("empty hash file was not materialized in the repository")
 		}
 	})
 }
