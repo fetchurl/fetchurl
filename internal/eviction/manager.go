@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/util"
 	"sync/atomic"
 	"time"
 
@@ -62,13 +62,13 @@ func (m *Manager) LoadInitialState() error {
 
 		info, err := d.Info()
 		if err != nil {
-			errutil.LogMsg(err, "Failed to get file info", "file", path)
+			util.LogMsg(err, "Failed to get file info", "file", path)
 			return nil
 		}
 
 		rel, err := filepath.Rel(m.cacheDir, path)
 		if err != nil {
-			errutil.LogMsg(err, "Failed to get relative path", "path", path)
+			util.LogMsg(err, "Failed to get relative path", "path", path)
 			return nil
 		}
 
@@ -135,7 +135,7 @@ func (m *Manager) RunEviction() {
 	for _, p := range m.policies {
 		toFree, err := p.BytesToFree(current)
 		if err != nil {
-			errutil.ReportError(err, "Failed to check capacity policy")
+			util.ReportError(err, "Failed to check capacity policy")
 			continue
 		}
 		if toFree > maxToFree {
@@ -164,7 +164,7 @@ func (m *Manager) RunEviction() {
 		path := filepath.Join(m.cacheDir, victim.Key)
 		err := os.Remove(path)
 		if err != nil && !os.IsNotExist(err) {
-			errutil.ReportError(err, "Failed to remove file", "path", path)
+			util.ReportError(err, "Failed to remove file", "path", path)
 			// Continue to next victim?
 			// If we can't remove, we shouldn't decrement size?
 			// But we remove from strategy to avoid loop.

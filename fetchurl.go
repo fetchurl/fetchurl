@@ -5,13 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lucasew/fetchurl/internal/util"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
-	"github.com/lucasew/fetchurl/internal/hashutil"
 	"github.com/shogo82148/go-sfv"
 )
 
@@ -63,7 +62,7 @@ func NewFetcher(client *http.Client) *Fetcher {
 		if strings.HasPrefix(envServer, "\"") {
 			list, err := sfv.DecodeList([]string{envServer})
 			if err != nil {
-				errutil.LogMsg(err, "Failed to parse FETCHURL_SERVER")
+				util.LogMsg(err, "Failed to parse FETCHURL_SERVER")
 			} else {
 				for _, item := range list {
 					if s, ok := item.Value.(string); ok {
@@ -83,7 +82,7 @@ func NewFetcher(client *http.Client) *Fetcher {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
-	if !hashutil.IsSupported(opts.Algo) {
+	if !util.IsSupported(opts.Algo) {
 		return fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, opts.Algo)
 	}
 
@@ -96,7 +95,7 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 		if lastErr == nil {
 			return nil
 		}
-		errutil.LogMsg(lastErr, "Failed to fetch from server", "server", server)
+		util.LogMsg(lastErr, "Failed to fetch from server", "server", server)
 		if cw.N > 0 {
 			return fmt.Errorf("%w: %w", ErrPartialWrite, lastErr)
 		}
@@ -108,7 +107,7 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 		if lastErr == nil {
 			return nil
 		}
-		errutil.LogMsg(lastErr, "Failed to fetch from source", "url", url)
+		util.LogMsg(lastErr, "Failed to fetch from source", "url", url)
 		if cw.N > 0 {
 			return fmt.Errorf("%w: %w", ErrPartialWrite, lastErr)
 		}
@@ -169,14 +168,14 @@ func (f *Fetcher) doRequest(req *http.Request, algo, expectedHash string, out io
 		return err
 	}
 	defer func() {
-		errutil.LogMsg(resp.Body.Close(), "Failed to close response body")
+		util.LogMsg(resp.Body.Close(), "Failed to close response body")
 	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return &HTTPStatusError{StatusCode: resp.StatusCode}
 	}
 
-	hasher, err := hashutil.GetHasher(algo)
+	hasher, err := util.GetHasher(algo)
 	if err != nil {
 		return err
 	}

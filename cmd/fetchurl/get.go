@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lucasew/fetchurl"
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/util"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
@@ -22,12 +22,12 @@ var getCmd = &cobra.Command{
 		hash := args[1]
 		urls, err := cmd.Flags().GetStringSlice("url")
 		if err != nil {
-			errutil.ReportError(err, "Failed to get url flag")
+			util.ReportError(err, "Failed to get url flag")
 			os.Exit(1)
 		}
 		output, err := cmd.Flags().GetString("output")
 		if err != nil {
-			errutil.ReportError(err, "Failed to get output flag")
+			util.ReportError(err, "Failed to get output flag")
 			os.Exit(1)
 		}
 
@@ -39,11 +39,11 @@ var getCmd = &cobra.Command{
 		if output != "" {
 			file, err := os.Create(output)
 			if err != nil {
-				errutil.ReportError(err, "Failed to create output file")
+				util.ReportError(err, "Failed to create output file")
 				os.Exit(1)
 			}
 			defer func() {
-				errutil.LogMsg(file.Close(), "Failed to close output file")
+				util.LogMsg(file.Close(), "Failed to close output file")
 			}()
 			out = file
 		} else {
@@ -59,7 +59,7 @@ var getCmd = &cobra.Command{
 			progressbar.OptionThrottle(65*time.Millisecond),
 			progressbar.OptionOnCompletion(func() {
 				if _, err := fmt.Fprint(os.Stderr, "\n"); err != nil {
-					errutil.LogMsg(err, "Failed to print newline to stderr")
+					util.LogMsg(err, "Failed to print newline to stderr")
 				}
 			}),
 		)
@@ -70,9 +70,9 @@ var getCmd = &cobra.Command{
 			URLs: urls,
 			Out:  io.MultiWriter(out, bar),
 		}); err != nil {
-			errutil.ReportError(err, "Fetch failed")
+			util.ReportError(err, "Fetch failed")
 			if output != "" {
-				errutil.LogMsg(os.Remove(output), "Failed to remove output file after failed fetch", "path", output)
+				util.LogMsg(os.Remove(output), "Failed to remove output file after failed fetch", "path", output)
 			}
 			os.Exit(1)
 		}

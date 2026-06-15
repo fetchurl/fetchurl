@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lucasew/fetchurl/internal/app"
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -26,12 +26,12 @@ var seedCmd = &cobra.Command{
 			result.Skipped,
 			result.Failed,
 		); printErr != nil {
-			errutil.ReportError(printErr, "Failed to print seed summary")
+			util.ReportError(printErr, "Failed to print seed summary")
 			return printErr
 		}
 
 		if err != nil {
-			errutil.ReportError(err, "Failed to seed cache", "store", args[0], "url_list", args[1])
+			util.ReportError(err, "Failed to seed cache", "store", args[0], "url_list", args[1])
 		}
 
 		return err

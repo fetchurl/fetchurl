@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -18,7 +18,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		if _, printErr := fmt.Fprintln(os.Stderr, err); printErr != nil {
-			errutil.ReportError(printErr, "Failed to print error to stderr")
+			util.ReportError(printErr, "Failed to print error to stderr")
 		}
 		os.Exit(1)
 	}

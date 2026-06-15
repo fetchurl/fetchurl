@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
 	"github.com/lucasew/fetchurl/internal/eviction"
+	"github.com/lucasew/fetchurl/internal/util"
 )
 
 // LocalRepository implements a Repository backed by the local filesystem.
@@ -58,7 +58,7 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 	}
 	info, err := f.Stat()
 	if err != nil {
-		errutil.ReportError(f.Close(), "Failed to close file after stat error", "path", path)
+		util.ReportError(f.Close(), "Failed to close file after stat error", "path", path)
 		return nil, 0, err
 	}
 	if r.eviction != nil {
@@ -107,7 +107,7 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		if r.eviction != nil {
 			info, err := os.Stat(finalPath)
 			if err != nil {
-				errutil.ReportError(err, "Failed to stat committed file", "path", finalPath)
+				util.ReportError(err, "Failed to stat committed file", "path", finalPath)
 			} else {
 				r.eviction.Add(r.getRelPath(algo, hash), info.Size())
 				slog.Info("Stored file", "algo", algo, "hash", hash, "size", info.Size())

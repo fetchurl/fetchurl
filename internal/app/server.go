@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/util"
 
 	"github.com/lucasew/fetchurl/internal/eviction"
 	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
@@ -61,7 +61,7 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	mgr := eviction.NewManager(cfg.CacheDir, policies, cfg.EvictionInterval, strat)
 
 	if err := mgr.LoadInitialState(); err != nil {
-		errutil.LogMsg(err, "Failed to load initial cache state")
+		util.LogMsg(err, "Failed to load initial cache state")
 	}
 
 	// Use the context from Cobra, which is canceled on shutdown

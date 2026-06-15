@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/lucasew/fetchurl/internal/util"
 	"hash"
 	"io"
 	"log/slog"
@@ -13,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
-	"github.com/lucasew/fetchurl/internal/hashutil"
 	"github.com/lucasew/fetchurl/internal/repository"
 	"github.com/schollz/progressbar/v3"
 )
@@ -59,7 +58,7 @@ func SeedCacheWithOptions(ctx context.Context, opts SeedOptions) (SeedResult, er
 		return SeedResult{}, fmt.Errorf("failed to open url list: %w", err)
 	}
 	defer func() {
-		errutil.ReportError(urlListFile.Close(), "Failed to close URL list file", "path", opts.URLListPath)
+		util.ReportError(urlListFile.Close(), "Failed to close URL list file", "path", opts.URLListPath)
 	}()
 
 	repo := repository.NewLocalRepository(opts.CacheDir, nil)
@@ -103,7 +102,7 @@ func seedURL(ctx context.Context, client *http.Client, repo *repository.LocalRep
 		return 0, 0, fmt.Errorf("failed to fetch %s: %w", url, err)
 	}
 	defer func() {
-		errutil.ReportError(resp.Body.Close(), "Failed to close response body", "url", url)
+		util.ReportError(resp.Body.Close(), "Failed to close response body", "url", url)
 	}()
 
 	if resp.StatusCode != http.StatusOK {
@@ -128,11 +127,11 @@ func seedURL(ctx context.Context, client *http.Client, repo *repository.LocalRep
 	tmpPath := tmpFile.Name()
 	defer func() {
 		if removeErr := os.Remove(tmpPath); removeErr != nil && !os.IsNotExist(removeErr) {
-			errutil.ReportError(removeErr, "Failed to remove seed temp file", "path", tmpPath, "url", url)
+			util.ReportError(removeErr, "Failed to remove seed temp file", "path", tmpPath, "url", url)
 		}
 	}()
 	defer func() {
-		errutil.ReportError(tmpFile.Close(), "Failed to close seed temp file", "path", tmpPath, "url", url)
+		util.ReportError(tmpFile.Close(), "Failed to close seed temp file", "path", tmpPath, "url", url)
 	}()
 
 	hashers, algorithms, err := buildHashers()
@@ -201,11 +200,11 @@ func seedURL(ctx context.Context, client *http.Client, repo *repository.LocalRep
 }
 
 func buildHashers() ([]hash.Hash, []string, error) {
-	algorithms := hashutil.SupportedAlgorithms()
+	algorithms := util.SupportedAlgorithms()
 	hashers := make([]hash.Hash, 0, len(algorithms))
 
 	for _, algo := range algorithms {
-		hasher, err := hashutil.GetHasher(algo)
+		hasher, err := util.GetHasher(algo)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create hasher for %s: %w", algo, err)
 		}
@@ -232,7 +231,7 @@ func startSeedProgress(logger *slog.Logger, out io.Writer, url string, contentLe
 		progressbar.OptionClearOnFinish(),
 		progressbar.OptionOnCompletion(func() {
 			if _, err := fmt.Fprint(out, "\n"); err != nil {
-				errutil.ReportError(err, "Failed to print progress completion newline", "url", url)
+				util.ReportError(err, "Failed to print progress completion newline", "url", url)
 			}
 		}),
 	)

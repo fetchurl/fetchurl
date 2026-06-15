@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/lucasew/fetchurl/internal/util"
 	"io"
 	"log/slog"
 	"math/rand"
@@ -11,8 +12,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
-	"github.com/lucasew/fetchurl/internal/hashutil"
 	"github.com/lucasew/fetchurl/internal/repository"
 	"github.com/shogo82148/go-sfv"
 	"golang.org/x/sync/singleflight"
@@ -45,10 +44,10 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path format. Expected /{algo}/{hash}", http.StatusBadRequest)
 		return
 	}
-	algo := hashutil.NormalizeAlgo(parts[0])
+	algo := util.NormalizeAlgo(parts[0])
 	hash := parts[1]
 
-	if !hashutil.IsSupported(algo) {
+	if !util.IsSupported(algo) {
 		http.Error(w, fmt.Sprintf("Unsupported hash algorithm: %s", algo), http.StatusBadRequest)
 		return
 	}
@@ -56,7 +55,7 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Try Local Cache
 	exists, err := h.Local.Exists(r.Context(), algo, hash)
 	if err != nil {
-		errutil.ReportError(err, "Failed to check cache existence")
+		util.ReportError(err, "Failed to check cache existence")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -112,11 +111,11 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// If error occurred and we haven't written headers yet, send error response
 		if !headersWritten {
-			errutil.ReportError(err, "Fetch failed")
+			util.ReportError(err, "Fetch failed")
 			http.Error(w, fmt.Sprintf("Failed to fetch: %v", err), http.StatusBadGateway)
 		} else {
 			// Headers already written, connection might be aborted or partial.
-			errutil.ReportError(err, "Fetch failed after headers written")
+			util.ReportError(err, "Fetch failed after headers written")
 		}
 		return
 	}
@@ -131,18 +130,18 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *CASHandler) serveFromCache(w http.ResponseWriter, r *http.Request, algo, hash string) {
 	reader, size, err := h.Local.Get(r.Context(), algo, hash)
 	if err != nil {
-		errutil.ReportError(err, "Failed to get from cache", "hash", hash)
+		util.ReportError(err, "Failed to get from cache", "hash", hash)
 		http.Error(w, "Failed to retrieve from cache", http.StatusInternalServerError)
 		return
 	}
 	defer func() {
-		errutil.LogMsg(reader.Close(), "Failed to close cache reader")
+		util.LogMsg(reader.Close(), "Failed to close cache reader")
 	}()
 
 	h.setCacheHeaders(w, algo, hash)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	if _, err := io.Copy(w, reader); err != nil {
-		errutil.LogMsg(err, "Failed to copy from cache to response")
+		util.LogMsg(err, "Failed to copy from cache to response")
 	}
 }
 
@@ -152,7 +151,7 @@ func (h *CASHandler) fetchAndStream(ctx context.Context, w http.ResponseWriter, 
 		if err == nil {
 			return nil
 		}
-		errutil.LogMsg(err, "Fetch from source failed", "url", source)
+		util.LogMsg(err, "Fetch from source failed", "url", source)
 		if *headersWritten {
 			return fmt.Errorf("fetch failed after headers already written: %w", err)
 		}
@@ -178,7 +177,7 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 		if err == nil {
 			req.Header.Set("X-Source-Urls", val)
 		} else {
-			errutil.LogMsg(err, "Failed to encode X-Source-Urls header")
+			util.LogMsg(err, "Failed to encode X-Source-Urls header")
 		}
 	}
 
@@ -187,7 +186,7 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer func() {
-		errutil.LogMsg(resp.Body.Close(), "Failed to close response body")
+		util.LogMsg(resp.Body.Close(), "Failed to close response body")
 	}()
 
 	if resp.StatusCode != http.StatusOK {
@@ -209,9 +208,9 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	committed := false
 	defer func() {
 		if !committed {
-			errutil.LogMsg(tmpFile.Close(), "Failed to close temp file")
+			util.LogMsg(tmpFile.Close(), "Failed to close temp file")
 			if f, ok := tmpFile.(*os.File); ok {
-				errutil.LogMsg(os.Remove(f.Name()), "Failed to remove temp file", "path", f.Name())
+				util.LogMsg(os.Remove(f.Name()), "Failed to remove temp file", "path", f.Name())
 			}
 		}
 	}()
@@ -225,7 +224,7 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	*headersWritten = true
 
 	// 3. Stream
-	hasher, err := hashutil.GetHasher(algo)
+	hasher, err := util.GetHasher(algo)
 	if err != nil {
 		return err
 	}
@@ -240,18 +239,18 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 	// 4. Verify Hash
 	actualHash := hex.EncodeToString(hasher.Sum(nil))
 	if actualHash != hash {
-		errutil.ReportError(fmt.Errorf("hash mismatch"), "Hash mismatch", "expected", hash, "got", actualHash)
+		util.ReportError(fmt.Errorf("hash mismatch"), "Hash mismatch", "expected", hash, "got", actualHash)
 		panic(http.ErrAbortHandler)
 	}
 
 	if resp.ContentLength > 0 && written != resp.ContentLength {
-		errutil.ReportError(fmt.Errorf("size mismatch"), "Size mismatch", "expected", resp.ContentLength, "got", written)
+		util.ReportError(fmt.Errorf("size mismatch"), "Size mismatch", "expected", resp.ContentLength, "got", written)
 		panic(http.ErrAbortHandler)
 	}
 
 	// 5. Commit
 	if err := commit(); err != nil {
-		errutil.ReportError(err, "Failed to commit file")
+		util.ReportError(err, "Failed to commit file")
 		return err
 	}
 	committed = true
@@ -268,7 +267,7 @@ func (h *CASHandler) parseSourceUrls(headers http.Header) []string {
 
 	list, err := sfv.DecodeList(values)
 	if err != nil {
-		errutil.LogMsg(err, "Failed to parse X-Source-Urls header")
+		util.LogMsg(err, "Failed to parse X-Source-Urls header")
 		return urls
 	}
 

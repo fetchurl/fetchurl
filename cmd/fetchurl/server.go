@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/lucasew/fetchurl/internal/app"
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -28,13 +28,13 @@ var serverCmd = &cobra.Command{
 
 		server, cleanup, err := app.NewServer(cmd.Context(), cfg)
 		if err != nil {
-			errutil.ReportError(err, "Failed to initialize server")
+			util.ReportError(err, "Failed to initialize server")
 			os.Exit(1)
 		}
 		defer cleanup()
 
 		if err := server.ListenAndServe(); err != nil {
-			errutil.ReportError(err, "Server failed")
+			util.ReportError(err, "Server failed")
 			os.Exit(1)
 		}
 	},
