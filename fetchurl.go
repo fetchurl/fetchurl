@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -28,6 +29,11 @@ var (
 
 	// ErrAllSourcesFailed is returned when no server or direct source could provide the content.
 	ErrAllSourcesFailed = errors.New("all sources failed")
+
+	// ErrMissingSourceURLs is returned when no source URLs are provided.
+	// Per the spec, clients MUST know the hash and source URLs before connecting
+	// to a server (they are sent via X-Source-Urls) or falling back to direct fetch.
+	ErrMissingSourceURLs = errors.New("source URLs are required")
 )
 
 // HTTPStatusError is returned when a source responds with a non-200 status code.
@@ -83,6 +89,10 @@ func NewFetcher(client *http.Client) *Fetcher {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
+	if len(opts.URLs) == 0 {
+		return ErrMissingSourceURLs
+	}
+
 	if !hashutil.IsSupported(opts.Algo) {
 		return fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, opts.Algo)
 	}
@@ -103,7 +113,14 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 	}
 
 	// 2. Fallback to Direct Download
-	for _, url := range opts.URLs {
+	// Shuffle direct sources per spec: "A source URL SHOULD be chosen randomly
+	// at fetch time, like a mirror list".
+	direct := make([]string, len(opts.URLs))
+	copy(direct, opts.URLs)
+	rand.Shuffle(len(direct), func(i, j int) {
+		direct[i], direct[j] = direct[j], direct[i]
+	})
+	for _, url := range direct {
 		lastErr = f.fetchDirect(ctx, url, opts.Algo, opts.Hash, cw)
 		if lastErr == nil {
 			return nil

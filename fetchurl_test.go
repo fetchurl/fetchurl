@@ -207,6 +207,20 @@ func TestFetcher(t *testing.T) {
 		}
 	})
 
+	t.Run("Missing Source URLs", func(t *testing.T) {
+		f := NewFetcher(nil)
+		var out bytes.Buffer
+		err := f.Fetch(t.Context(), FetchOptions{
+			Algo: "sha256",
+			Hash: hash,
+			URLs: nil,
+			Out:  &out,
+		})
+		if !errors.Is(err, ErrMissingSourceURLs) {
+			t.Errorf("expected ErrMissingSourceURLs, got %v", err)
+		}
+	})
+
 	t.Run("All Sources Failed", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(404)
