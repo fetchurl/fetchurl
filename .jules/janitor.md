@@ -19,3 +19,4 @@ terminates the application with `os.Exit(1)`.
 ## Pattern
 
 Error Handling / Configuration
+- 2026-06-17: Fix biome and ruff lints by removing unused imports, prefixing unused args with underscore, and untangling assignments from while-loop conditions.

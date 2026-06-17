@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it } from 'node:test';
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import {
@@ -205,7 +205,7 @@ describe('fetchurl()', () => {
     const content = new TextEncoder().encode('test content');
     const hash = await sha256hex(content);
 
-    const srv = await startServer((req, res) => {
+    const srv = await startServer((_req, res) => {
       res.writeHead(200);
       res.end(content);
     });
@@ -229,7 +229,7 @@ describe('fetchurl()', () => {
     const content = new TextEncoder().encode('wrong content');
     const hash = await sha256hex(new TextEncoder().encode('right content'));
 
-    const srv = await startServer((req, res) => {
+    const srv = await startServer((_req, res) => {
       res.writeHead(200);
       res.end(content);
     });
@@ -254,7 +254,7 @@ describe('fetchurl()', () => {
   it('throws AllSourcesFailedError when all fail', async () => {
     const hash = await sha256hex(new TextEncoder().encode('x'));
 
-    const srv = await startServer((req, res) => {
+    const srv = await startServer((_req, res) => {
       res.writeHead(404);
       res.end();
     });
@@ -280,11 +280,11 @@ describe('fetchurl()', () => {
     const content = new TextEncoder().encode('fallback content');
     const hash = await sha256hex(content);
 
-    const bad = await startServer((req, res) => {
+    const bad = await startServer((_req, res) => {
       res.writeHead(500);
       res.end();
     });
-    const good = await startServer((req, res) => {
+    const good = await startServer((_req, res) => {
       res.writeHead(200);
       res.end(content);
     });

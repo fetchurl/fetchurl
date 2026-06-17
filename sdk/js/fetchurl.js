@@ -376,7 +376,12 @@ export async function fetchurl({
   let lastError = null;
   let attempt;
 
-  while ((attempt = session.nextAttempt())) {
+  while (true) {
+    attempt = session.nextAttempt();
+    if (!attempt) {
+      break;
+    }
+
     let resp;
     try {
       resp = await fetchFn(attempt.url, { headers: attempt.headers });
