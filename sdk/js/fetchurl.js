@@ -374,9 +374,11 @@ export async function fetchurl({
 }) {
   const session = new FetchSession({ servers, algo, hash, sourceUrls });
   let lastError = null;
-  let attempt;
 
-  while ((attempt = session.nextAttempt())) {
+  while (true) {
+    const attempt = session.nextAttempt();
+    if (!attempt) break;
+
     let resp;
     try {
       resp = await fetchFn(attempt.url, { headers: attempt.headers });

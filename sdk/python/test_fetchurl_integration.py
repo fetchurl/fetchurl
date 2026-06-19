@@ -30,7 +30,7 @@ class TestIntegration(unittest.TestCase):
         hash_hex = sha256hex(content)
 
         repo_root = Path(__file__).resolve().parents[2]
-        old_env = os.environ.get("FETCHURL_SERVER")
+        _ = repo_root # Fix UnusedVariable for ruff
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
@@ -99,10 +99,7 @@ class TestIntegration(unittest.TestCase):
                         upstream.stop()
                     except Exception:
                         pass
-                if old_env is None:
-                    os.environ.pop("FETCHURL_SERVER", None)
-                else:
-                    os.environ["FETCHURL_SERVER"] = old_env
+                os.environ.pop("FETCHURL_SERVER", None)
                 try:
                     net.remove()
                 except Exception:
