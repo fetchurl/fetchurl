@@ -15,6 +15,7 @@ import (
 
 	"github.com/lucasew/fetchurl/internal/errutil"
 	"github.com/lucasew/fetchurl/internal/hashutil"
+	"github.com/lucasew/fetchurl/internal/httpclient"
 	"github.com/lucasew/fetchurl/internal/repository"
 	"github.com/shogo82148/go-sfv"
 	"golang.org/x/sync/singleflight"
@@ -37,7 +38,7 @@ type CASHandler struct {
 
 func NewCASHandler(local *repository.LocalRepository, client *http.Client, upstreams []string, appCtx context.Context) *CASHandler {
 	if client == nil {
-		client = http.DefaultClient
+		client = httpclient.NewClient(nil)
 	}
 	return &CASHandler{
 		Local:          local,

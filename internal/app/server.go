@@ -18,6 +18,7 @@ import (
 	"github.com/lucasew/fetchurl/internal/eviction/policy/maxsize"
 	"github.com/lucasew/fetchurl/internal/eviction/policy/minfree"
 	"github.com/lucasew/fetchurl/internal/handler"
+	"github.com/lucasew/fetchurl/internal/httpclient"
 	"github.com/lucasew/fetchurl/internal/repository"
 )
 
@@ -85,7 +86,7 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 			if err != nil {
 				return err
 			}
-			return ValidateIP(host, allowPrivate)
+			return httpclient.ValidateIP(host, allowPrivate)
 		},
 	}
 

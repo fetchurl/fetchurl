@@ -16,6 +16,9 @@ import (
 )
 
 func TestCASHandler(t *testing.T) {
+	// Allow private IPs in testing to allow hitting httptest servers
+	t.Setenv("FETCHURL_ALLOW_PRIVATE_IPS", "1")
+
 	// Setup temporary cache dir
 	cacheDir := t.TempDir()
 	localRepo := repository.NewLocalRepository(cacheDir, nil)

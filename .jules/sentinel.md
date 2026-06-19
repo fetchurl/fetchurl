@@ -1,1 +1,2 @@
 - 2026-06-12: [SSRF via HTTP Client: Watch for direct usage of http.DefaultClient without a custom net.Dialer Control function blocking loopback/private/metadata IPs.]
+- 2026-06-19: [Critical SSRF vulnerability caused by unvalidated http.DefaultClient usage; requires custom net.Dialer to block private/loopback/metadata IPs.]

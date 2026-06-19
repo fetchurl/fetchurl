@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/lucasew/fetchurl"
 	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/lucasew/fetchurl/internal/httpclient"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
@@ -31,7 +31,7 @@ var getCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := http.DefaultClient
+		client := httpclient.NewClient(nil)
 
 		f := fetchurl.NewFetcher(client)
 

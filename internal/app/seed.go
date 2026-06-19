@@ -15,6 +15,7 @@ import (
 
 	"github.com/lucasew/fetchurl/internal/errutil"
 	"github.com/lucasew/fetchurl/internal/hashutil"
+	"github.com/lucasew/fetchurl/internal/httpclient"
 	"github.com/lucasew/fetchurl/internal/repository"
 	"github.com/schollz/progressbar/v3"
 )
@@ -44,7 +45,7 @@ func SeedCache(ctx context.Context, cacheDir, urlListPath string, client *http.C
 
 func SeedCacheWithOptions(ctx context.Context, opts SeedOptions) (SeedResult, error) {
 	if opts.Client == nil {
-		opts.Client = http.DefaultClient
+		opts.Client = httpclient.NewClient(nil)
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
