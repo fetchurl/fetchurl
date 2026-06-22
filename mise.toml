@@ -3,7 +3,6 @@ go = "1.25.6"
 "go:golang.org/x/tools/gopls" = "0.21.0"
 "github:lucasew/workspaced" = "0.1.2"
 
-
 [tasks.lint]
 description = "Run all linters"
 run = "workspaced codebase lint"
@@ -19,29 +18,7 @@ description = "Run tests"
 
 [tasks."build:fetchurl-image"]
 run = "docker build -t fetchurl:local ."
-description = "Build fetchurl Docker image for integration tests"
-
-[tasks."testcontainers:js"]
-depends = ["build:fetchurl-image"]
-dir = "sdk/js"
-run = "mise exec -- npm install && FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- node --test fetchurl.integration.test.js"
-description = "Run JS integration tests with testcontainers"
-
-[tasks."testcontainers:python"]
-depends = ["build:fetchurl-image"]
-dir = "sdk/python"
-run = "FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- uv sync --dev && FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- uv run --extra test python -m unittest test_fetchurl_integration.py"
-description = "Run Python integration tests with testcontainers"
-
-[tasks."testcontainers:rust"]
-depends = ["build:fetchurl-image"]
-dir = "sdk/rust"
-run = "FETCHURL_TEST_IMAGE=fetchurl:local mise exec -- cargo test --test integration"
-description = "Run Rust integration tests with testcontainers (requires docker build)"
-
-[tasks.testcontainers]
-depends = ["testcontainers:*"]
-description = "Run all testcontainers integration tests"
+description = "Build fetchurl Docker image (for SDK integration tests in other repos)"
 
 [tasks.ci]
 depends = ["lint", "test"]
