@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
-	"github.com/lucasew/fetchurl/internal/eviction"
+	"github.com/fetchurl/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/eviction"
 )
 
 // LocalRepository implements a Repository backed by the local filesystem.

@@ -27,12 +27,30 @@ Configure storage and listen address via the CLI/server flags and env (see `cmd/
 
 Clients reach the server via `FETCHURL_SERVER` (full base URL ready to append `/:algo/:hash`), per the [spec](https://github.com/fetchurl/spec/blob/main/SPEC.md).
 
+## Install (Go)
+
+```bash
+go install github.com/fetchurl/fetchurl/cmd/fetchurl@latest
+```
+
+Module path: `github.com/fetchurl/fetchurl`.
+
+## Container image
+
+Published by CI as **`ghcr.io/fetchurl/fetchurl`** (also tagged with release versions).
+
+For local/SDK integration tests you can still build a local tag:
+
+```bash
+docker build -t fetchurl:local .
+# or use the published image:
+# FETCHURL_TEST_IMAGE=ghcr.io/fetchurl/fetchurl:latest
+```
+
 ## Development
 
 ```bash
 go test ./...
-# Docker image for SDK integration tests elsewhere:
-# docker build -t fetchurl:local .
 ```
 
 ## License

@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/lucasew/fetchurl/internal/app"
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/app"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/spf13/cobra"
 )
 

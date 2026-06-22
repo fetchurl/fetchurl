@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/app"
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/app"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"

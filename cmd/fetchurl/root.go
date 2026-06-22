@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

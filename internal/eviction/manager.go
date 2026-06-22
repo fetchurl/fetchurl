@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 	"sync/atomic"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/eviction/policy"
+	"github.com/fetchurl/fetchurl/internal/eviction/policy"
 )
 
 // Manager manages cache eviction by coordinating between storage usage,

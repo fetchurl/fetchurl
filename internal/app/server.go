@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 
-	"github.com/lucasew/fetchurl/internal/eviction"
-	_ "github.com/lucasew/fetchurl/internal/eviction/lru"
-	"github.com/lucasew/fetchurl/internal/eviction/policy"
-	"github.com/lucasew/fetchurl/internal/eviction/policy/maxsize"
-	"github.com/lucasew/fetchurl/internal/eviction/policy/minfree"
-	"github.com/lucasew/fetchurl/internal/handler"
-	"github.com/lucasew/fetchurl/internal/repository"
+	"github.com/fetchurl/fetchurl/internal/eviction"
+	_ "github.com/fetchurl/fetchurl/internal/eviction/lru"
+	"github.com/fetchurl/fetchurl/internal/eviction/policy"
+	"github.com/fetchurl/fetchurl/internal/eviction/policy/maxsize"
+	"github.com/fetchurl/fetchurl/internal/eviction/policy/minfree"
+	"github.com/fetchurl/fetchurl/internal/handler"
+	"github.com/fetchurl/fetchurl/internal/repository"
 )
 
 type Config struct {

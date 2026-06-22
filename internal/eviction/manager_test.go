@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/eviction"
-	"github.com/lucasew/fetchurl/internal/eviction/lru"
-	"github.com/lucasew/fetchurl/internal/eviction/policy"
-	"github.com/lucasew/fetchurl/internal/eviction/policy/maxsize"
+	"github.com/fetchurl/fetchurl/internal/eviction"
+	"github.com/fetchurl/fetchurl/internal/eviction/lru"
+	"github.com/fetchurl/fetchurl/internal/eviction/policy"
+	"github.com/fetchurl/fetchurl/internal/eviction/policy/maxsize"
 )
 
 func TestManager(t *testing.T) {

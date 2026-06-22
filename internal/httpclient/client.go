@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 )
 
 // NewClient creates an http.Client configured with custom CA certificate + system CAs.

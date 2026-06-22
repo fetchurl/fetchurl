@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/lucasew/fetchurl"
-	"github.com/lucasew/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl"
+	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )

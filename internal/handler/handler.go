@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lucasew/fetchurl/internal/errutil"
-	"github.com/lucasew/fetchurl/internal/hashutil"
-	"github.com/lucasew/fetchurl/internal/repository"
+	"github.com/fetchurl/fetchurl/internal/errutil"
+	"github.com/fetchurl/fetchurl/internal/hashutil"
+	"github.com/fetchurl/fetchurl/internal/repository"
 	"github.com/shogo82148/go-sfv"
 	"golang.org/x/sync/singleflight"
 )

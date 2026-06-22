@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lucasew/fetchurl/internal/repository"
+	"github.com/fetchurl/fetchurl/internal/repository"
 )
 
 func TestCASHandler(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/lucasew/fetchurl
+module github.com/fetchurl/fetchurl
 
 go 1.24.0
 

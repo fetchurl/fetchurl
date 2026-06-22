@@ -72,8 +72,8 @@ jobs:
           exit 1
         fi
 
-    - name: Run testcontainers
-      run: mise run testcontainers
+    - name: Go test
+      run: go test ./...
 
     - name: Build binaries
       env:
@@ -104,7 +104,7 @@ jobs:
           echo "RELEASE_VERSION=$(cat version.txt)" >> $GITHUB_ENV
         fi
 
-    - name: Create relase
+    - name: Create release
       if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -140,48 +140,3 @@ jobs:
         docker tag "$TAG:latest" "$TAG:$VERSION"
         docker push "$TAG:$VERSION"
         docker push "$TAG:latest"
-
-    - name: Sync SDK versions
-      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
-      run: |
-        VERSION="$(cat version.txt)"
-        # JS
-        jq --arg v "$VERSION" '.version = $v' sdk/js/package.json > sdk/js/package.json.tmp && mv sdk/js/package.json.tmp sdk/js/package.json
-        # Python
-        sed -i "s/^version = .*/version = \"$VERSION\"/" sdk/python/pyproject.toml
-        # Rust
-        sed -i "0,/^version = .*/s/^version = .*/version = \"$VERSION\"/" sdk/rust/Cargo.toml
-
-    - name: Publish npm package
-      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
-      continue-on-error: true
-      env:
-        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      run: |
-        npm config set //registry.npmjs.org/:_authToken "${NPM_TOKEN}"
-        cd sdk/js
-        npm publish --access public
-
-    - name: Publish Python package
-      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
-      continue-on-error: true
-      env:
-        UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: |
-        mise trust sdk/python
-        cd sdk/python
-        mise install
-        cp --dereference README.md README.md.real && mv README.md.real README.md
-        uv build
-        uv publish
-
-    - name: Publish Rust crate
-      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
-      continue-on-error: true
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      run: |
-        mise trust sdk/rust
-        cd sdk/rust
-        mise install
-        cargo publish

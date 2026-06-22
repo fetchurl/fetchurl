@@ -4,7 +4,7 @@ import (
 	"container/list"
 	"sync"
 
-	"github.com/lucasew/fetchurl/internal/eviction"
+	"github.com/fetchurl/fetchurl/internal/eviction"
 )
 
 // LRU implements the eviction.Strategy interface using Least Recently Used logic.
