@@ -1,7 +1,8 @@
 #!/usr/bin/env -S python3 -u
-"""Bump version (svu), commit + tag locally. Push commit/tag/release only via `push` after publish succeeds."""
+"""Bump version (svu), commit + tag locally. Push only via `push` after publish succeeds."""
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -9,7 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MANIFEST = ROOT / "version.txt"
+MANIFEST_PATHS: list[str] = []  # empty → git add -A
 SVU_MODES = frozenset({"next", "major", "minor", "patch"})
+UPLOAD_GLOB: str | None = "build/*"
 
 
 def log(msg: str) -> None:
@@ -27,10 +30,8 @@ def run_out(cmd: list[str]) -> str:
 def resolve_version(mode: str) -> str:
     mode = mode.lstrip("v")
     if mode in SVU_MODES:
-        ver = run_out(["svu", mode])
-    else:
-        ver = mode
-    return ver.lstrip("v")
+        return run_out(["svu", mode]).lstrip("v")
+    return mode
 
 
 def write_manifest(version: str) -> None:
@@ -40,14 +41,16 @@ def write_manifest(version: str) -> None:
 def read_manifest_version() -> str:
     return MANIFEST.read_text(encoding="utf-8").strip()
 
-
-def git_commit_and_tag(version: str) -> None:
-    run(["git", "add", "-A"])
+def git_commit_and_tag(version: str, paths: list[str]) -> None:
+    if paths:
+        run(["git", "add", *paths])
+    else:
+        run(["git", "add", "-A"])
     staged = run(["git", "diff", "--cached", "--quiet"], check=False)
     if staged.returncode != 0:
         run(["git", "commit", "-sm", f"bump to {version}"])
     else:
-        log("nothing to commit")
+        log("nothing to commit (manifest unchanged?)")
     exists = run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{version}"], check=False)
     if exists.returncode == 0:
         run(["git", "tag", "-f", version])
@@ -57,8 +60,8 @@ def git_commit_and_tag(version: str) -> None:
         log(f"created local tag {version}")
 
 
-def push_release(version: str, *, upload_glob: str | None = "build/*") -> None:
-    """Push branch + tag, create GH release, optionally attach artifacts."""
+def push_release(version: str, *, upload_glob: str | None = None) -> None:
+    """Push branch + tag and create GitHub release. Call only after registry publish succeeds."""
     branch = run_out(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     run(["git", "push", "origin", f"HEAD:{branch}"])
     run(["git", "push", "origin", version])
@@ -78,50 +81,82 @@ def push_release(version: str, *, upload_glob: str | None = "build/*") -> None:
             ]
         )
     if upload_glob:
-        # best-effort upload if artifacts exist
         paths = sorted(ROOT.glob(upload_glob))
         if paths:
             run(["gh", "release", "upload", version, *[str(p) for p in paths], "--clobber"])
     log(f"pushed commit + tag + release {version}")
 
 
-def usage() -> None:
-    log(
-        "usage:\n"
-        "  ./make_release prepare [next|major|minor|patch|x.y.z]\n"
-        "  ./make_release push [x.y.z]\n"
-        "Shorthand: ./make_release patch  (same as prepare patch)"
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="./make_release",
+        description=(
+            "Bump version with svu, commit and tag locally. "
+            "Push commit/tag/GitHub release only via the push subcommand "
+            "(run after a successful registry publish)."
+        ),
+    )
+    sub = p.add_subparsers(dest="command", required=True)
+
+    prep = sub.add_parser(
+        "prepare",
+        help="svu → write manifest → local commit + local tag (no remote push)",
+    )
+    prep.add_argument(
+        "mode",
+        nargs="?",
+        default="next",
+        help="svu mode (next|major|minor|patch) or explicit x.y.z (default: next)",
     )
 
+    push_p = sub.add_parser(
+        "push",
+        help="push branch + tag and create GitHub release (after successful publish)",
+    )
+    push_p.add_argument(
+        "version",
+        nargs="?",
+        default=None,
+        help="semver to push (default: version from manifest)",
+    )
 
-def main(argv: list[str]) -> int:
-    if not argv or argv[0] in ("-h", "--help"):
-        usage()
-        return 0 if argv and argv[0] in ("-h", "--help") else 2
+    for mode in sorted(SVU_MODES):
+        sp = sub.add_parser(mode, help=f"shorthand for: prepare {mode}")
+        sp.set_defaults(command="prepare", mode=mode)
 
-    cmd = argv[0]
-    rest = argv[1:]
-    if cmd in SVU_MODES or re.fullmatch(r"\d+\.\d+\.\d+", cmd.lstrip("v")):
-        rest = [cmd, *rest]
-        cmd = "prepare"
+    return p
 
-    if cmd == "prepare":
-        mode = rest[0] if rest else "next"
-        version = resolve_version(mode)
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    # Bare semver → prepare <semver>
+    if (
+        args_list
+        and args_list[0] not in ("prepare", "push", "-h", "--help")
+        and args_list[0] not in SVU_MODES
+        and re.fullmatch(r"v?\d+\.\d+\.\d+", args_list[0])
+    ):
+        args_list = ["prepare", args_list[0].lstrip("v"), *args_list[1:]]
+
+    args = parser.parse_args(args_list)
+
+    if args.command == "prepare":
+        version = resolve_version(args.mode)
         write_manifest(version)
-        git_commit_and_tag(version)
+        git_commit_and_tag(version, MANIFEST_PATHS)
         print(version)
         return 0
 
-    if cmd == "push":
-        version = rest[0].lstrip("v") if rest else read_manifest_version()
-        push_release(version)
+    if args.command == "push":
+        version = (args.version or read_manifest_version()).lstrip("v")
+        push_release(version, upload_glob=UPLOAD_GLOB)
         print(version)
         return 0
 
-    usage()
+    parser.error(f"unknown command {args.command!r}")
     return 2
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
