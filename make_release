@@ -42,34 +42,46 @@ def read_manifest_version() -> str:
     return MANIFEST.read_text(encoding="utf-8").strip()
 
 def git_commit_and_tag(version: str, paths: list[str]) -> None:
+    # Never let git write to stdout — CI captures only the version line from prepare.
     if paths:
-        run(["git", "add", *paths])
+        run(["git", "add", *paths], capture=True)
     else:
-        run(["git", "add", "-A"])
-    staged = run(["git", "diff", "--cached", "--quiet"], check=False)
+        run(["git", "add", "-A"], capture=True)
+    staged = run(["git", "diff", "--cached", "--quiet"], check=False, capture=True)
     if staged.returncode != 0:
-        run(["git", "commit", "-sm", f"bump to {version}"])
+        cp = run(["git", "commit", "-sm", f"bump to {version}"], capture=True)
+        if cp.stdout:
+            log(cp.stdout.rstrip())
+        if cp.stderr:
+            log(cp.stderr.rstrip())
     else:
         log("nothing to commit (manifest unchanged?)")
-    exists = run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{version}"], check=False)
+    exists = run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{version}"], check=False, capture=True)
     if exists.returncode == 0:
-        run(["git", "tag", "-f", version])
+        run(["git", "tag", "-f", version], capture=True)
         log(f"moved local tag {version}")
     else:
-        run(["git", "tag", version])
+        run(["git", "tag", version], capture=True)
         log(f"created local tag {version}")
 
 
 def push_release(version: str, *, upload_glob: str | None = None) -> None:
     """Push branch + tag and create GitHub release. Call only after registry publish succeeds."""
     branch = run_out(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    run(["git", "push", "origin", f"HEAD:{branch}"])
-    run(["git", "push", "origin", version])
+    for cmd in (
+        ["git", "push", "origin", f"HEAD:{branch}"],
+        ["git", "push", "origin", version],
+    ):
+        cp = run(cmd, capture=True)
+        if cp.stdout:
+            log(cp.stdout.rstrip())
+        if cp.stderr:
+            log(cp.stderr.rstrip())
     chk = run(["gh", "release", "view", version], check=False, capture=True)
     if chk.returncode == 0:
         log(f"GitHub release {version} already exists")
     else:
-        run(
+        cp = run(
             [
                 "gh",
                 "release",
@@ -78,12 +90,24 @@ def push_release(version: str, *, upload_glob: str | None = None) -> None:
                 "--title",
                 f"Release {version}",
                 "--generate-notes",
-            ]
+            ],
+            capture=True,
         )
+        if cp.stdout:
+            log(cp.stdout.rstrip())
+        if cp.stderr:
+            log(cp.stderr.rstrip())
     if upload_glob:
         paths = sorted(ROOT.glob(upload_glob))
         if paths:
-            run(["gh", "release", "upload", version, *[str(p) for p in paths], "--clobber"])
+            cp = run(
+                ["gh", "release", "upload", version, *[str(p) for p in paths], "--clobber"],
+                capture=True,
+            )
+            if cp.stdout:
+                log(cp.stdout.rstrip())
+            if cp.stderr:
+                log(cp.stderr.rstrip())
     log(f"pushed commit + tag + release {version}")
 
 
