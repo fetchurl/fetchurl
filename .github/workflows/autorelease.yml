@@ -12,10 +12,11 @@ on:
   workflow_dispatch:
     inputs:
       new_version:
-        description: 'New tag version'
+        description: 'Version bump mode (svu)'
         type: choice
-        default: 'patch'
+        default: 'next'
         options:
+        - next
         - patch
         - minor
         - major
@@ -37,6 +38,9 @@ jobs:
     steps:
 
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      with:
+        # svu needs full history + tags
+        fetch-depth: 0
     - name: Setup git config
       run: |
         git config user.name actions-bot
@@ -93,15 +97,15 @@ jobs:
           echo "::endgroup::"
         done
 
-    - name: Make release if everything looks right
+    - name: Make release if everything looks right (svu)
       if: github.event_name != 'pull_request'
       env:
         NEW_VERSION: ${{ github.event.inputs.new_version }}
       run: |
         if [[ ! -z "$NEW_VERSION" ]]; then
-          NO_TAG=1 ./make_release "$NEW_VERSION"
-          echo "New version: $(cat version.txt)" >> $GITHUB_STEP_SUMMARY
-          echo "RELEASE_VERSION=$(cat version.txt)" >> $GITHUB_ENV
+          VERSION="$(NO_TAG=1 ./make_release "$NEW_VERSION")"
+          echo "New version: $VERSION (from svu $NEW_VERSION)" >> $GITHUB_STEP_SUMMARY
+          echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
         fi
 
     - name: Create release
@@ -111,6 +115,8 @@ jobs:
         TAG: ${{ env.RELEASE_VERSION }}
         TITLE: Release ${{ env.RELEASE_VERSION }}
       run: |
+        git tag "$TAG" 2>/dev/null || true
+        git push origin "$TAG" 2>/dev/null || true
         gh release create "$TAG" \
           --title "$TITLE" \
           --generate-notes
