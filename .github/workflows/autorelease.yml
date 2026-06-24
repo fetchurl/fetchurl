@@ -39,7 +39,6 @@ jobs:
 
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
       with:
-        # svu needs full history + tags
         fetch-depth: 0
     - name: Setup git config
       run: |
@@ -97,37 +96,17 @@ jobs:
           echo "::endgroup::"
         done
 
-    - name: Make release if everything looks right (svu)
-      if: github.event_name != 'pull_request'
+    # Local commit + tag only
+    - name: Prepare release (svu, commit, local tag)
+      if: github.event_name == 'workflow_dispatch'
       env:
         NEW_VERSION: ${{ github.event.inputs.new_version }}
       run: |
         if [[ ! -z "$NEW_VERSION" ]]; then
-          VERSION="$(NO_TAG=1 ./make_release "$NEW_VERSION")"
-          echo "New version: $VERSION (from svu $NEW_VERSION)" >> $GITHUB_STEP_SUMMARY
+          VERSION="$(./make_release prepare "$NEW_VERSION")"
+          echo "New version: $VERSION (not pushed until publish succeeds)" >> $GITHUB_STEP_SUMMARY
           echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
         fi
-
-    - name: Create release
-      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TAG: ${{ env.RELEASE_VERSION }}
-        TITLE: Release ${{ env.RELEASE_VERSION }}
-      run: |
-        git tag "$TAG" 2>/dev/null || true
-        git push origin "$TAG" 2>/dev/null || true
-        gh release create "$TAG" \
-          --title "$TITLE" \
-          --generate-notes
-
-    - name: Upload release artifacts
-      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TAG: ${{ env.RELEASE_VERSION }}
-      run: |
-        gh release upload "$TAG" build/* --clobber
 
     - name: Login to registry
       uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -137,12 +116,19 @@ jobs:
         username: ${{ env.USERNAME }}
         password: ${{ github.token }}
 
-    - name: "Build and publish container"
+    # Publish first; remote git only after this succeeds
+    - name: "Publish container"
       env:
         TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
       if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
       run: |
-        VERSION="$(cat version.txt)"
+        VERSION="$RELEASE_VERSION"
         docker tag "$TAG:latest" "$TAG:$VERSION"
         docker push "$TAG:$VERSION"
         docker push "$TAG:latest"
+
+    - name: Push commit, tag, GitHub release + artifacts
+      if: env.RELEASE_VERSION != '' && github.event_name != 'pull_request'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: ./make_release push "$RELEASE_VERSION"

@@ -1,27 +1,127 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env -S python3 -u
+"""Bump version (svu), commit + tag locally. Push commit/tag/release only via `push` after publish succeeds."""
+from __future__ import annotations
 
-# Usage: ./make_release [next|major|minor|patch|<x.y.z>]
-MODE="${1:-next}"
+import re
+import subprocess
+import sys
+from pathlib import Path
 
-case "$MODE" in
-  next|major|minor|patch)
-    VERSION="$(svu "$MODE")"
-    ;;
-  *)
-    VERSION="${MODE#v}"
-    ;;
-esac
-VERSION="${VERSION#v}"
+ROOT = Path(__file__).resolve().parent
+MANIFEST = ROOT / "version.txt"
+SVU_MODES = frozenset({"next", "major", "minor", "patch"})
 
-printf "%s" "$VERSION" > version.txt
 
-git add -A
-git commit -sm "bump to $VERSION" || true
-if [[ ! -v NO_TAG ]]; then
-  git tag "$VERSION"
-  git push origin "$VERSION"
-fi
-git push origin HEAD
+def log(msg: str) -> None:
+    print(msg, file=sys.stderr)
 
-echo "$VERSION"
+
+def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=capture)
+
+
+def run_out(cmd: list[str]) -> str:
+    return run(cmd, capture=True).stdout.strip()
+
+
+def resolve_version(mode: str) -> str:
+    mode = mode.lstrip("v")
+    if mode in SVU_MODES:
+        ver = run_out(["svu", mode])
+    else:
+        ver = mode
+    return ver.lstrip("v")
+
+
+def write_manifest(version: str) -> None:
+    MANIFEST.write_text(version, encoding="utf-8")
+
+
+def read_manifest_version() -> str:
+    return MANIFEST.read_text(encoding="utf-8").strip()
+
+
+def git_commit_and_tag(version: str) -> None:
+    run(["git", "add", "-A"])
+    staged = run(["git", "diff", "--cached", "--quiet"], check=False)
+    if staged.returncode != 0:
+        run(["git", "commit", "-sm", f"bump to {version}"])
+    else:
+        log("nothing to commit")
+    exists = run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{version}"], check=False)
+    if exists.returncode == 0:
+        run(["git", "tag", "-f", version])
+        log(f"moved local tag {version}")
+    else:
+        run(["git", "tag", version])
+        log(f"created local tag {version}")
+
+
+def push_release(version: str, *, upload_glob: str | None = "build/*") -> None:
+    """Push branch + tag, create GH release, optionally attach artifacts."""
+    branch = run_out(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    run(["git", "push", "origin", f"HEAD:{branch}"])
+    run(["git", "push", "origin", version])
+    chk = run(["gh", "release", "view", version], check=False, capture=True)
+    if chk.returncode == 0:
+        log(f"GitHub release {version} already exists")
+    else:
+        run(
+            [
+                "gh",
+                "release",
+                "create",
+                version,
+                "--title",
+                f"Release {version}",
+                "--generate-notes",
+            ]
+        )
+    if upload_glob:
+        # best-effort upload if artifacts exist
+        paths = sorted(ROOT.glob(upload_glob))
+        if paths:
+            run(["gh", "release", "upload", version, *[str(p) for p in paths], "--clobber"])
+    log(f"pushed commit + tag + release {version}")
+
+
+def usage() -> None:
+    log(
+        "usage:\n"
+        "  ./make_release prepare [next|major|minor|patch|x.y.z]\n"
+        "  ./make_release push [x.y.z]\n"
+        "Shorthand: ./make_release patch  (same as prepare patch)"
+    )
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        usage()
+        return 0 if argv and argv[0] in ("-h", "--help") else 2
+
+    cmd = argv[0]
+    rest = argv[1:]
+    if cmd in SVU_MODES or re.fullmatch(r"\d+\.\d+\.\d+", cmd.lstrip("v")):
+        rest = [cmd, *rest]
+        cmd = "prepare"
+
+    if cmd == "prepare":
+        mode = rest[0] if rest else "next"
+        version = resolve_version(mode)
+        write_manifest(version)
+        git_commit_and_tag(version)
+        print(version)
+        return 0
+
+    if cmd == "push":
+        version = rest[0].lstrip("v") if rest else read_manifest_version()
+        push_release(version)
+        print(version)
+        return 0
+
+    usage()
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
