@@ -74,6 +74,10 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid hash: expected hex digest of the correct length for the algorithm", http.StatusBadRequest)
 		return
 	}
+	// Spec prefers lowercase hex; normalize so cache keys, empty-hash
+	// short-circuit, and post-download comparisons stay consistent when
+	// clients send mixed/upper-case digests (IsValidDigest allows A-F).
+	hash = strings.ToLower(hash)
 
 	// Spec SHOULD: servers should satisfy the empty file hash without
 	// contacting any source or performing a download. We short-circuit
