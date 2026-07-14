@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/fetchurl/fetchurl/internal/eviction"
@@ -35,12 +36,24 @@ func (r *LocalRepository) getRelPath(algo, hash string) string {
 	return filepath.Join(algo, hash[:2], hash)
 }
 
-func (r *LocalRepository) getPath(algo, hash string) string {
-	return filepath.Join(r.CacheDir, r.getRelPath(algo, hash))
+// getPath resolves the on-disk path for algo/hash and rejects any
+// resolution that escapes CacheDir (defense in depth against path
+// traversal if a caller skips digest validation).
+func (r *LocalRepository) getPath(algo, hash string) (string, error) {
+	full := filepath.Clean(filepath.Join(r.CacheDir, r.getRelPath(algo, hash)))
+	root := filepath.Clean(r.CacheDir)
+	if full != root && !strings.HasPrefix(full, root+string(os.PathSeparator)) {
+		return "", fmt.Errorf("hash path escapes cache directory")
+	}
+	return full, nil
 }
 
 func (r *LocalRepository) Exists(ctx context.Context, algo, hash string) (bool, error) {
-	_, err := os.Stat(r.getPath(algo, hash))
+	path, err := r.getPath(algo, hash)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(path)
 	if err == nil {
 		return true, nil
 	}
@@ -51,7 +64,10 @@ func (r *LocalRepository) Exists(ctx context.Context, algo, hash string) (bool, 
 }
 
 func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCloser, int64, error) {
-	path := r.getPath(algo, hash)
+	path, err := r.getPath(algo, hash)
+	if err != nil {
+		return nil, 0, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
@@ -71,7 +87,10 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 // It creates a temporary file and returns it along with a commit function.
 // The commit function should be called after the file is fully written and verified.
 func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() error, error) {
-	finalPath := r.getPath(algo, hash)
+	finalPath, err := r.getPath(algo, hash)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Create temp file in the same filesystem/dir as final destination (or at least same volume)
 	// We can use CacheDir root or a tmp subdir inside it.

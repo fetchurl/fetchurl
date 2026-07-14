@@ -121,4 +121,18 @@ func TestLocalRepository(t *testing.T) {
 			t.Errorf("Content mismatch")
 		}
 	})
+
+	t.Run("Path traversal hash rejected", func(t *testing.T) {
+		// hash ".." → Join(cache, algo, "..", "..") cleans to the parent of CacheDir.
+		evil := ".."
+		if _, _, err := repo.BeginWrite(algo, evil); err == nil {
+			t.Fatal("BeginWrite accepted path-escaping hash")
+		}
+		if _, err := repo.Exists(ctx, algo, evil); err == nil {
+			t.Fatal("Exists accepted path-escaping hash")
+		}
+		if _, _, err := repo.Get(ctx, algo, evil); err == nil {
+			t.Fatal("Get accepted path-escaping hash")
+		}
+	})
 }

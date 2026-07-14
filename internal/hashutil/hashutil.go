@@ -51,6 +51,33 @@ func IsSupported(name string) bool {
 	return ok
 }
 
+// digestLen is the hex character count for each supported algorithm's digest.
+var digestLen = map[string]int{
+	"sha1":   40,
+	"sha256": 64,
+	"sha512": 128,
+}
+
+// IsValidDigest reports whether digest is a hex encoding of the expected
+// length for algo. Rejecting non-hex characters prevents path separators
+// and ".." from reaching filesystem joins under the CAS cache root.
+func IsValidDigest(algo, digest string) bool {
+	want, ok := digestLen[NormalizeAlgo(algo)]
+	if !ok || len(digest) != want {
+		return false
+	}
+	for i := 0; i < len(digest); i++ {
+		c := digest[i]
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+			// ok
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func SupportedAlgorithms() []string {
 	algorithms := make([]string, 0, len(registry))
 	for name := range registry {

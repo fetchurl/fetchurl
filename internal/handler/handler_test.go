@@ -189,6 +189,36 @@ func TestCASHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("Path traversal hash rejected", func(t *testing.T) {
+		// Single path segment ".." is accepted by the /{algo}/{hash} split, but
+		// filepath.Join(cacheDir, "sha256", "..", "..") resolves to the parent of
+		// the cache root. Digest validation must reject it before any FS access.
+		req := httptest.NewRequest("GET", "/sha256/..", nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for path traversal hash, got %d body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Non-hex digest rejected", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/sha256/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for non-hex digest, got %d", w.Code)
+		}
+	})
+
+	t.Run("Wrong-length hex digest rejected", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/sha256/deadbeef", nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for short digest, got %d", w.Code)
+		}
+	})
+
 	t.Run("Empty hash short-circuit (no sources needed)", func(t *testing.T) {
 		// sha256 of empty input
 		emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
