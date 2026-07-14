@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -31,7 +32,24 @@ var getCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := http.DefaultClient
+		// Do not use http.DefaultClient (no dial/header bounds). Do not set
+		// Client.Timeout either — that covers the whole transfer and would
+		// abort multi-GB downloads on slow links. Bound dial + TLS + response
+		// headers only; body streaming may run as long as the peer sends data.
+		client := &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		}
 
 		f := fetchurl.NewFetcher(client)
 

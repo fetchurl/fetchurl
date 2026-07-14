@@ -8,6 +8,7 @@ import (
 	"hash"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -44,7 +45,23 @@ func SeedCache(ctx context.Context, cacheDir, urlListPath string, client *http.C
 
 func SeedCacheWithOptions(ctx context.Context, opts SeedOptions) (SeedResult, error) {
 	if opts.Client == nil {
-		opts.Client = http.DefaultClient
+		// No Client.Timeout: seed may pull multi-GB objects over slow links.
+		// Bound dial/TLS/response-header waits only so stalled peers fail
+		// without aborting a long body stream mid-transfer.
+		opts.Client = &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		}
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
