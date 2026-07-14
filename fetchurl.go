@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -60,9 +61,24 @@ type FetchOptions struct {
 
 func NewFetcher(client *http.Client) *Fetcher {
 	if client == nil {
-		// Bound the fallback client; http.DefaultClient has no Timeout and
-		// can hang forever on stalled peers (go-security client timeouts).
-		client = &http.Client{Timeout: 30 * time.Second}
+		// Do not use http.DefaultClient (unbounded). Do not set Client.Timeout
+		// either — that covers the whole transfer and aborts multi-GB downloads
+		// on slow links. Bound dial/TLS/response headers only; body streaming
+		// may continue as long as the peer sends data.
+		client = &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		}
 	}
 
 	var servers []string
