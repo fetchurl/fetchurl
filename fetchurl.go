@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/fetchurl/fetchurl/internal/hashutil"
@@ -59,7 +60,9 @@ type FetchOptions struct {
 
 func NewFetcher(client *http.Client) *Fetcher {
 	if client == nil {
-		client = http.DefaultClient
+		// Bound the fallback client; http.DefaultClient has no Timeout and
+		// can hang forever on stalled peers (go-security client timeouts).
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	var servers []string
