@@ -244,6 +244,28 @@ func TestCASHandler(t *testing.T) {
 			t.Error("empty hash file was not materialized in the repository")
 		}
 	})
+
+	t.Run("Uppercase digest normalizes to lowercase cache key", func(t *testing.T) {
+		emptyLower := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		emptyUpper := strings.ToUpper(emptyLower)
+		req := httptest.NewRequest("GET", fmt.Sprintf("/sha256/%s", emptyUpper), nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for uppercase empty hash, got %d. Body: %s", w.Code, w.Body.String())
+		}
+		// Must land under the lowercase path so mixed-case clients share cache entries.
+		exists, err := localRepo.Exists(context.Background(), "sha256", emptyLower)
+		if err != nil {
+			t.Fatalf("Exists: %v", err)
+		}
+		if !exists {
+			t.Error("uppercase request did not materialize lowercase cache entry")
+		}
+		if w.Header().Get("Link") != fmt.Sprintf("</fetch/sha256/%s>; rel=\"canonical\"", emptyLower) {
+			t.Errorf("Link header should use lowercase digest, got %s", w.Header().Get("Link"))
+		}
+	})
 }
 
 func sha256Sum(b []byte) string {
