@@ -123,9 +123,16 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("Starting server (CAS)", "addr", addr, "cache_dir", cfg.CacheDir, "upstreams", len(cfg.Upstreams))
 
+	// Timeouts: ReadHeaderTimeout stops Slowloris-style stalls before headers
+	// complete. IdleTimeout reaps keep-alive connections. WriteTimeout is
+	// intentionally left unset — CAS responses can be multi-GB streams and a
+	// global write deadline would abort legitimate long transfers.
+	// See best-practices go-security: always set server timeouts (zero = none).
 	server := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	cleanup := func() {

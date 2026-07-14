@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/fetchurl/fetchurl/internal/app"
@@ -33,9 +38,38 @@ var serverCmd = &cobra.Command{
 		}
 		defer cleanup()
 
-		if err := server.ListenAndServe(); err != nil {
-			errutil.ReportError(err, "Server failed")
-			os.Exit(1)
+		// SIGINT/SIGTERM → graceful Shutdown so in-flight CAS streams finish
+		// (or hit the shutdown deadline) instead of an abrupt process kill.
+		runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
+		errCh := make(chan error, 1)
+		go func() {
+			err := server.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+				return
+			}
+			errCh <- nil
+		}()
+
+		select {
+		case <-runCtx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := server.Shutdown(shutdownCtx); err != nil {
+				errutil.ReportError(err, "Graceful shutdown failed")
+				os.Exit(1)
+			}
+			if err := <-errCh; err != nil {
+				errutil.ReportError(err, "Server failed after shutdown")
+				os.Exit(1)
+			}
+		case err := <-errCh:
+			if err != nil {
+				errutil.ReportError(err, "Server failed")
+				os.Exit(1)
+			}
 		}
 	},
 }
