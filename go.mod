@@ -1,8 +1,6 @@
 module github.com/fetchurl/fetchurl
 
-go 1.24.0
-
-toolchain go1.24.3
+go 1.25.6
 
 require (
 	github.com/schollz/progressbar/v3 v3.19.0
