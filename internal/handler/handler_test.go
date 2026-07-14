@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -207,7 +206,11 @@ func TestCASHandler(t *testing.T) {
 			t.Errorf("expected zero-length body for empty hash, got len=%d", w.Body.Len())
 		}
 		// Should have materialized the file for future cache hits
-		if exists, _ := localRepo.Exists(context.Background(), "sha256", emptyHash); !exists {
+		exists, err := localRepo.Exists(t.Context(), "sha256", emptyHash)
+		if err != nil {
+			t.Fatalf("Exists after empty short-circuit: %v", err)
+		}
+		if !exists {
 			t.Error("empty hash file was not materialized in the repository")
 		}
 	})

@@ -342,21 +342,32 @@ func (h *CASHandler) serveEmpty(w http.ResponseWriter, algo, hash string) {
 	w.WriteHeader(http.StatusOK)
 
 	// Best-effort: ensure a 0-byte file exists in the CAS store.
-	// Ignore errors — an empty file is easy to recreate and not critical.
-	if exists, _ := h.Local.Exists(context.Background(), algo, hash); !exists {
-		tmp, commit, err := h.Local.BeginWrite(algo, hash)
-		if err != nil {
-			errutil.LogMsg(err, "BeginWrite failed for empty hash materialization")
-			return
-		}
-		// Do not Close the tmp ourselves — commit() is responsible for
-		// closing the temp file before rename (see local.go:BeginWrite).
-		// Writing zero bytes is implicit (we never Write anything).
-		if cerr := commit(); cerr != nil {
-			errutil.LogMsg(cerr, "failed to commit empty file")
-		}
-		_ = tmp // tmp may be closed by commit; avoid unused warning
+	// Materialization failures are logged but do not fail the response —
+	// an empty body was already sent and the empty file is easy to recreate.
+	ctx := h.AppCtx
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	exists, err := h.Local.Exists(ctx, algo, hash)
+	if err != nil {
+		errutil.LogMsg(err, "Exists failed for empty hash materialization", "algo", algo, "hash", hash)
+		return
+	}
+	if exists {
+		return
+	}
+	tmp, commit, err := h.Local.BeginWrite(algo, hash)
+	if err != nil {
+		errutil.LogMsg(err, "BeginWrite failed for empty hash materialization")
+		return
+	}
+	// Do not Close the tmp ourselves — commit() is responsible for
+	// closing the temp file before rename (see local.go:BeginWrite).
+	// Writing zero bytes is implicit (we never Write anything).
+	if cerr := commit(); cerr != nil {
+		errutil.LogMsg(cerr, "failed to commit empty file")
+	}
+	_ = tmp // tmp may be closed by commit; avoid unused warning
 }
 
 // isHealthyUpstream actively checks the dedicated health route of a
