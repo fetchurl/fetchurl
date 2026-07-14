@@ -64,8 +64,14 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Per spec: servers SHOULD reject hashes longer than 255 ASCII characters.
+	// Also require a hex digest of the algorithm's expected length so path
+	// components like ".." or separators cannot escape the cache root.
 	if len(hash) > 255 {
 		http.Error(w, "hash too long (max 255 ASCII characters)", http.StatusBadRequest)
+		return
+	}
+	if !hashutil.IsValidDigest(algo, hash) {
+		http.Error(w, "invalid hash: expected hex digest of the correct length for the algorithm", http.StatusBadRequest)
 		return
 	}
 
