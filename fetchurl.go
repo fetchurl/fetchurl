@@ -96,6 +96,10 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 	if !hashutil.IsSupported(opts.Algo) {
 		return fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, opts.Algo)
 	}
+	// Match server behavior: digests are compared against hex.EncodeToString
+	// (always lowercase). Normalize so mixed-case CLI/SDK hashes still verify.
+	opts.Algo = hashutil.NormalizeAlgo(opts.Algo)
+	opts.Hash = strings.ToLower(opts.Hash)
 
 	cw := &countingWriter{Writer: opts.Out}
 	var lastErr error

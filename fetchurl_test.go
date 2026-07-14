@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/shogo82148/go-sfv"
@@ -40,6 +41,30 @@ func TestFetcher(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.String() != string(content) {
+			t.Errorf("got %q, want %q", out.String(), string(content))
+		}
+	})
+
+	t.Run("Direct Download Success Uppercase Hash", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, err := w.Write(content); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
+		}))
+		defer ts.Close()
+
+		f := NewFetcher(nil)
+		var out bytes.Buffer
+		err := f.Fetch(t.Context(), FetchOptions{
+			Algo: "SHA-256",
+			Hash: strings.ToUpper(hash),
+			URLs: []string{ts.URL},
+			Out:  &out,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error for uppercase hash: %v", err)
 		}
 		if out.String() != string(content) {
 			t.Errorf("got %q, want %q", out.String(), string(content))
