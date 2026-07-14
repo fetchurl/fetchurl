@@ -40,7 +40,7 @@ var serverCmd = &cobra.Command{
 
 		// SIGINT/SIGTERM → graceful Shutdown so in-flight CAS streams finish
 		// (or hit the shutdown deadline) instead of an abrupt process kill.
-		runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
 		errCh := make(chan error, 1)
