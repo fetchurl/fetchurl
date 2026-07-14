@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/fetchurl/fetchurl/internal/hashutil"
+	"github.com/fetchurl/fetchurl/internal/httpclient"
 	"github.com/shogo82148/go-sfv"
 )
 
@@ -61,24 +60,7 @@ type FetchOptions struct {
 
 func NewFetcher(client *http.Client) *Fetcher {
 	if client == nil {
-		// Do not use http.DefaultClient (unbounded). Do not set Client.Timeout
-		// either — that covers the whole transfer and aborts multi-GB downloads
-		// on slow links. Bound dial/TLS/response headers only; body streaming
-		// may continue as long as the peer sends data.
-		client = &http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyFromEnvironment,
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-				ForceAttemptHTTP2:     true,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-				IdleConnTimeout:       90 * time.Second,
-			},
-		}
+		client = httpclient.New()
 	}
 
 	var servers []string
