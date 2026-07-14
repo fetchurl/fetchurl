@@ -255,7 +255,7 @@ func TestCASHandler(t *testing.T) {
 			t.Fatalf("expected 200 for uppercase empty hash, got %d. Body: %s", w.Code, w.Body.String())
 		}
 		// Must land under the lowercase path so mixed-case clients share cache entries.
-		exists, err := localRepo.Exists(context.Background(), "sha256", emptyLower)
+		exists, err := localRepo.Exists(t.Context(), "sha256", emptyLower)
 		if err != nil {
 			t.Fatalf("Exists: %v", err)
 		}
