@@ -52,3 +52,17 @@ func TestNewServerTimeouts(t *testing.T) {
 		t.Errorf("WriteTimeout = %v, want 0 (unlimited for large streams)", server.WriteTimeout)
 	}
 }
+
+func TestNewOutboundClientHeaderTimeout(t *testing.T) {
+	client := newOutboundClient(true)
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport type = %T, want *http.Transport", client.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 30*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %v, want 30s (must match httpclient.NewTransport)", tr.ResponseHeaderTimeout)
+	}
+	if client.Timeout != 0 {
+		t.Errorf("Client.Timeout = %v, want 0 (large CAS streams)", client.Timeout)
+	}
+}
