@@ -21,6 +21,14 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// upstreamHealthEntry caches the result of a /health probe for a short TTL.
+// Both healthy and unhealthy outcomes are stored so a down upstream is not
+// re-probed on every cache miss (each probe has a multi-second timeout).
+type upstreamHealthEntry struct {
+	checkedAt time.Time
+	healthy   bool
+}
+
 type CASHandler struct {
 	Local     *repository.LocalRepository
 	Client    *http.Client
@@ -28,11 +36,11 @@ type CASHandler struct {
 	AppCtx    context.Context // Application context (from Cobra), not request context
 	g         singleflight.Group
 
-	// upstreamHealth caches recent successful /health probes for configured
+	// upstreamHealth caches recent /health probe results for configured
 	// upstream fetchurl servers (keyed by the base URL as provided in config).
 	// Used to satisfy the spec rule that downstream servers decide health by
 	// checking the dedicated health route.
-	upstreamHealth   map[string]time.Time
+	upstreamHealth   map[string]upstreamHealthEntry
 	upstreamHealthMu sync.Mutex
 }
 
@@ -48,7 +56,7 @@ func NewCASHandler(local *repository.LocalRepository, client *http.Client, upstr
 		Client:         client,
 		Upstreams:      upstreams,
 		AppCtx:         appCtx,
-		upstreamHealth: make(map[string]time.Time),
+		upstreamHealth: make(map[string]upstreamHealthEntry),
 	}
 }
 
@@ -388,7 +396,8 @@ func (h *CASHandler) serveEmpty(w http.ResponseWriter, algo, hash string) {
 // configured upstream fetchurl server (the base as given to --upstream
 // or FETCHURL_UPSTREAM). It returns true only on HTTP 200.
 //
-// It implements a small TTL cache so we don't hammer health on every miss.
+// It caches both success and failure for a short TTL so we don't hammer
+// /health (and wait on its probe timeout) on every cache miss.
 // Per spec: "Downstream servers MUST decide about the healthiness of the
 // server by checking the status code of the health route. 200 = OK."
 //
@@ -401,9 +410,10 @@ func (h *CASHandler) isHealthyUpstream(ctx context.Context, upstreamBase string)
 	const healthTTL = 30 * time.Second
 
 	h.upstreamHealthMu.Lock()
-	if last, ok := h.upstreamHealth[base]; ok && time.Since(last) < healthTTL {
+	if entry, ok := h.upstreamHealth[base]; ok && time.Since(entry.checkedAt) < healthTTL {
+		healthy := entry.healthy
 		h.upstreamHealthMu.Unlock()
-		return true
+		return healthy
 	}
 	h.upstreamHealthMu.Unlock()
 
@@ -413,12 +423,14 @@ func (h *CASHandler) isHealthyUpstream(ctx context.Context, upstreamBase string)
 
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, healthURL, nil)
 	if err != nil {
+		h.cacheUpstreamHealth(base, false)
 		return false
 	}
 
 	resp, err := h.Client.Do(req)
 	if err != nil {
 		slog.Info("upstream health probe failed", "upstream", base, "error", err)
+		h.cacheUpstreamHealth(base, false)
 		return false
 	}
 
@@ -426,13 +438,15 @@ func (h *CASHandler) isHealthyUpstream(ctx context.Context, upstreamBase string)
 	closeErr := resp.Body.Close()
 	errutil.LogMsg(closeErr, "failed to close upstream health response body", "upstream", base)
 
-	if statusOK {
-		h.upstreamHealthMu.Lock()
-		h.upstreamHealth[base] = time.Now()
-		h.upstreamHealthMu.Unlock()
-	} else {
+	if !statusOK {
 		slog.Info("upstream health check returned non-200", "upstream", base, "status", resp.StatusCode)
 	}
-
+	h.cacheUpstreamHealth(base, statusOK)
 	return statusOK
+}
+
+func (h *CASHandler) cacheUpstreamHealth(base string, healthy bool) {
+	h.upstreamHealthMu.Lock()
+	h.upstreamHealth[base] = upstreamHealthEntry{checkedAt: time.Now(), healthy: healthy}
+	h.upstreamHealthMu.Unlock()
 }

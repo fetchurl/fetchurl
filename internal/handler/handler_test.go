@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -293,5 +294,64 @@ func TestNewCASHandlerNilClientNotDefault(t *testing.T) {
 	}
 	if tr.ResponseHeaderTimeout != 30*time.Second {
 		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tr.ResponseHeaderTimeout)
+	}
+}
+
+func TestUpstreamHealthNegativeCache(t *testing.T) {
+	// Unhealthy /health results must be cached so cache-miss storms do not
+	// re-issue a multi-second probe on every request.
+	var probes atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			probes.Add(1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		// CAS object path should never be reached while unhealthy.
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(upstream.Close)
+
+	localRepo := repository.NewLocalRepository(t.TempDir(), nil)
+	h := NewCASHandler(localRepo, nil, []string{upstream.URL}, t.Context())
+
+	hash := sha256Sum([]byte("upstream-health-negative-cache"))
+	// Two independent cache misses: only the first should probe /health.
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/sha256/%s", hash), nil)
+		// No X-Source-Urls: with only an unhealthy upstream this is a 404.
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("request %d: status = %d, want 404 (unhealthy upstream + no sources)", i, w.Code)
+		}
+	}
+
+	if got := probes.Load(); got != 1 {
+		t.Fatalf("health probes = %d, want 1 (negative result must be TTL-cached)", got)
+	}
+
+	// Positive path still works and is also cached for subsequent lookups.
+	var okProbes atomic.Int32
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			okProbes.Add(1)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(healthy.Close)
+
+	h2 := NewCASHandler(repository.NewLocalRepository(t.TempDir(), nil), nil, []string{healthy.URL}, t.Context())
+	// Direct unit checks of the helper (avoids needing a full CAS object).
+	if !h2.isHealthyUpstream(t.Context(), healthy.URL) {
+		t.Fatal("expected healthy upstream after 200 /health")
+	}
+	if !h2.isHealthyUpstream(t.Context(), healthy.URL) {
+		t.Fatal("expected second lookup to stay healthy from cache")
+	}
+	if got := okProbes.Load(); got != 1 {
+		t.Fatalf("healthy probes = %d, want 1 (positive result must be TTL-cached)", got)
 	}
 }
