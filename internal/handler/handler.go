@@ -15,6 +15,7 @@ import (
 
 	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/fetchurl/fetchurl/internal/hashutil"
+	"github.com/fetchurl/fetchurl/internal/httpclient"
 	"github.com/fetchurl/fetchurl/internal/repository"
 	"github.com/shogo82148/go-sfv"
 	"golang.org/x/sync/singleflight"
@@ -37,7 +38,10 @@ type CASHandler struct {
 
 func NewCASHandler(local *repository.LocalRepository, client *http.Client, upstreams []string, appCtx context.Context) *CASHandler {
 	if client == nil {
-		client = http.DefaultClient
+		// Same dial/header bounds as CLI/Fetcher. Production always injects the
+		// SSRF-aware client from app.NewServer; this is the safe default for
+		// tests and other callers — never the unbounded http.DefaultClient.
+		client = httpclient.New()
 	}
 	return &CASHandler{
 		Local:          local,

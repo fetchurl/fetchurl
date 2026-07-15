@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fetchurl/fetchurl/internal/repository"
 )
@@ -271,4 +272,26 @@ func TestCASHandler(t *testing.T) {
 func sha256Sum(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+func TestNewCASHandlerNilClientNotDefault(t *testing.T) {
+	// Production injects an SSRF-aware client; nil must still get dial/header
+	// bounds via httpclient.New, never the unbounded http.DefaultClient.
+	h := NewCASHandler(repository.NewLocalRepository(t.TempDir(), nil), nil, nil, t.Context())
+	if h.Client == nil {
+		t.Fatal("Client is nil")
+	}
+	if h.Client == http.DefaultClient {
+		t.Fatal("nil client must not fall back to http.DefaultClient")
+	}
+	if h.Client.Timeout != 0 {
+		t.Errorf("Client.Timeout = %v, want 0 (no full-body deadline)", h.Client.Timeout)
+	}
+	tr, ok := h.Client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport type = %T, want *http.Transport", h.Client.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 30*time.Second {
+		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tr.ResponseHeaderTimeout)
+	}
 }
