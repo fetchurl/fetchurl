@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-
-	"github.com/fetchurl/fetchurl/internal/errutil"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/fetchurl/fetchurl/internal/eviction/policy"
 )
 
@@ -43,6 +43,11 @@ func NewManager(cacheDir string, policies []policy.Policy, interval time.Duratio
 // This method walks the entire cache directory to calculate current usage and
 // populate the eviction strategy (e.g., LRU list).
 //
+// Only committed CAS objects under {algo}/{shard}/{hash} are counted. Orphan
+// write temps (put-* from BeginWrite, seed-* from seed) left at the cache root
+// after a crash would otherwise inflate currentBytes and cause premature
+// eviction of real objects; those known temps are removed best-effort.
+//
 // Note: This operation can be I/O intensive for large caches and should be called
 // before starting the server or the eviction loop.
 func (m *Manager) LoadInitialState() error {
@@ -60,15 +65,32 @@ func (m *Manager) LoadInitialState() error {
 			return nil
 		}
 
-		info, err := d.Info()
-		if err != nil {
-			errutil.LogMsg(err, "Failed to get file info", "file", path)
-			return nil
-		}
-
 		rel, err := filepath.Rel(m.cacheDir, path)
 		if err != nil {
 			errutil.LogMsg(err, "Failed to get relative path", "path", path)
+			return nil
+		}
+
+		// Drop orphan write temps at the cache root (CreateTemp put-*/seed-*).
+		// Do not count them toward size — they are not CAS objects.
+		if isOrphanWriteTemp(rel) {
+			if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+				errutil.LogMsg(removeErr, "Failed to remove orphan cache temp", "path", path)
+			} else {
+				slog.Info("Removed orphan cache temp", "path", rel)
+			}
+			return nil
+		}
+
+		// CAS layout is {algo}/{shard}/{hash}. Anything else (stray files,
+		// incomplete layouts) is ignored so it cannot skew capacity.
+		if !isCASObjectRel(rel) {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			errutil.LogMsg(err, "Failed to get file info", "file", path)
 			return nil
 		}
 
@@ -86,6 +108,30 @@ func (m *Manager) LoadInitialState() error {
 	m.currentBytes.Store(totalSize)
 	slog.Info("Initial cache state loaded", "count", count, "size", totalSize)
 	return nil
+}
+
+// isCASObjectRel reports whether rel is a committed CAS object path:
+// {algo}/{shard}/{hash} (exactly two path separators).
+func isCASObjectRel(rel string) bool {
+	if rel == "" || rel == "." {
+		return false
+	}
+	// filepath.Rel uses OS separators; refuse anything that escapes via "..".
+	if strings.Contains(rel, "..") {
+		return false
+	}
+	parts := strings.Split(rel, string(os.PathSeparator))
+	return len(parts) == 3 && parts[0] != "" && parts[1] != "" && parts[2] != ""
+}
+
+// isOrphanWriteTemp reports whether rel is a top-level CreateTemp name used for
+// in-progress CAS writes (repository put-*, seed seed-*).
+func isOrphanWriteTemp(rel string) bool {
+	if strings.Contains(rel, string(os.PathSeparator)) {
+		return false
+	}
+	base := filepath.Base(rel)
+	return strings.HasPrefix(base, "put-") || strings.HasPrefix(base, "seed-")
 }
 
 // Start runs the background eviction loop.
@@ -119,6 +165,11 @@ func (m *Manager) Add(key string, size int64) {
 // For strategies like LRU, this promotes the item to prevent it from being evicted.
 func (m *Manager) Touch(key string) {
 	m.strategy.OnAccess(key)
+}
+
+// CurrentBytes returns the tracked total size of committed CAS objects.
+func (m *Manager) CurrentBytes() int64 {
+	return m.currentBytes.Load()
 }
 
 // RunEviction enforces eviction policies by removing files if thresholds are exceeded.
