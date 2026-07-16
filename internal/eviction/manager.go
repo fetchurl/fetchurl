@@ -48,11 +48,19 @@ func NewManager(cacheDir string, policies []policy.Policy, interval time.Duratio
 // after a crash would otherwise inflate currentBytes and cause premature
 // eviction of real objects; those known temps are removed best-effort.
 //
+// Entries are collected during the walk and applied to the strategy only after
+// the walk succeeds, so a mid-walk I/O error does not leave strategy and
+// currentBytes out of sync (partial OnAdd + zero currentBytes would under-count
+// usage and skip eviction).
+//
 // Note: This operation can be I/O intensive for large caches and should be called
 // before starting the server or the eviction loop.
 func (m *Manager) LoadInitialState() error {
-	var totalSize int64
-	var count int
+	type casEntry struct {
+		rel  string
+		size int64
+	}
+	var entries []casEntry
 
 	err := filepath.WalkDir(m.cacheDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -94,10 +102,7 @@ func (m *Manager) LoadInitialState() error {
 			return nil
 		}
 
-		size := info.Size()
-		totalSize += size
-		count++
-		m.strategy.OnAdd(rel, size)
+		entries = append(entries, casEntry{rel: rel, size: info.Size()})
 		return nil
 	})
 
@@ -105,8 +110,14 @@ func (m *Manager) LoadInitialState() error {
 		return fmt.Errorf("failed to walk cache dir: %w", err)
 	}
 
+	var totalSize int64
+	for _, e := range entries {
+		totalSize += e.size
+		m.strategy.OnAdd(e.rel, e.size)
+	}
+
 	m.currentBytes.Store(totalSize)
-	slog.Info("Initial cache state loaded", "count", count, "size", totalSize)
+	slog.Info("Initial cache state loaded", "count", len(entries), "size", totalSize)
 	return nil
 }
 

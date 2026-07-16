@@ -98,6 +98,47 @@ func createFile(t *testing.T, dir, name string, size int64) {
 	}
 }
 
+// A walk error must not leave the strategy half-populated while currentBytes
+// stays zero — that under-counts cache size and skips eviction.
+func TestLoadInitialStateWalkErrorDoesNotMutateStrategy(t *testing.T) {
+	cacheDir := t.TempDir()
+	// Real CAS object visited before the unreadable dir (lexical order).
+	casRel := filepath.Join("sha256", "aa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	createFile(t, cacheDir, casRel, 10)
+
+	// Unreadable subdirectory makes WalkDir fail after the CAS path is seen.
+	// Without deferred apply, OnAdd would have already mutated the strategy.
+	badDir := filepath.Join(cacheDir, "zzz-unreadable")
+	if err := os.Mkdir(badDir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(badDir, "x"), []byte("y"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Chmod(badDir, 0); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(badDir, 0o755); err != nil {
+			t.Errorf("restore Chmod: %v", err)
+		}
+	})
+
+	strat := lru.New()
+	mgr := eviction.NewManager(cacheDir, nil, time.Minute, strat)
+	if err := mgr.LoadInitialState(); err == nil {
+		t.Fatal("LoadInitialState: want error when a subdirectory is unreadable")
+	}
+	if got := mgr.CurrentBytes(); got != 0 {
+		t.Errorf("CurrentBytes = %d, want 0 after failed load", got)
+	}
+	// No CAS entries applied despite walk having seen casRel before the error.
+	victims := strat.GetVictims(10, 0)
+	if len(victims) != 0 {
+		t.Errorf("strategy victims = %+v, want empty after failed load", victims)
+	}
+}
+
 // Orphan put-*/seed-* temps at the cache root must not inflate accounting or
 // survive LoadInitialState — otherwise a crash mid-write makes the next boot
 // over-count cache size and evict real CAS objects early.
