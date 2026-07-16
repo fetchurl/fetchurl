@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,12 @@ import (
 	"github.com/shogo82148/go-sfv"
 	"golang.org/x/sync/singleflight"
 )
+
+// errIntegrityFailure is returned from tryFetchFromSource when the streamed
+// body fails hash or Content-Length checks after response headers were sent.
+// ServeHTTP converts this into panic(http.ErrAbortHandler) only for the
+// singleflight leader that owns the ResponseWriter.
+var errIntegrityFailure = errors.New("integrity check failed")
 
 // upstreamHealthEntry caches the result of a /health probe for a short TTL.
 // Both healthy and unhealthy outcomes are stored so a down upstream is not
@@ -166,14 +173,17 @@ func (h *CASHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		// If error occurred and we haven't written headers yet, send error response
-		if !headersWritten {
-			errutil.ReportError(err, "Fetch failed")
-			http.Error(w, fmt.Sprintf("Failed to fetch: %v", err), http.StatusBadGateway)
-		} else {
-			// Headers already written, connection might be aborted or partial.
+		// headersWritten is per-request: only the singleflight leader streams
+		// into this ResponseWriter. Waiters always see headersWritten=false.
+		// Integrity / mid-stream failures must not panic inside g.Do — x/sync
+		// singleflight re-panics into every waiter, aborting clients that never
+		// received a body. Abort only the leader after Do returns.
+		if headersWritten {
 			errutil.ReportError(err, "Fetch failed after headers written")
+			panic(http.ErrAbortHandler)
 		}
+		errutil.ReportError(err, "Fetch failed")
+		http.Error(w, fmt.Sprintf("Failed to fetch: %v", err), http.StatusBadGateway)
 		return
 	}
 
@@ -293,16 +303,17 @@ func (h *CASHandler) tryFetchFromSource(ctx context.Context, w http.ResponseWrit
 		return fmt.Errorf("streaming failed: %w", err)
 	}
 
-	// 4. Verify Hash
+	// 4. Verify Hash / size.
+	// Return errors (do not panic here): panic(http.ErrAbortHandler) inside
+	// singleflight is re-raised on every waiter. ServeHTTP aborts only the
+	// leader connection that already wrote headers.
 	actualHash := hex.EncodeToString(hasher.Sum(nil))
 	if actualHash != hash {
-		errutil.ReportError(fmt.Errorf("hash mismatch"), "Hash mismatch", "expected", hash, "got", actualHash)
-		panic(http.ErrAbortHandler)
+		return fmt.Errorf("%w: expected %s, got %s", errIntegrityFailure, hash, actualHash)
 	}
 
 	if resp.ContentLength > 0 && written != resp.ContentLength {
-		errutil.ReportError(fmt.Errorf("size mismatch"), "Size mismatch", "expected", resp.ContentLength, "got", written)
-		panic(http.ErrAbortHandler)
+		return fmt.Errorf("%w: content-length %d, wrote %d", errIntegrityFailure, resp.ContentLength, written)
 	}
 
 	// 5. Commit

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -113,14 +114,13 @@ func TestCASHandler(t *testing.T) {
 	})
 
 	t.Run("Hash Mismatch", func(t *testing.T) {
-		// Requesting hash2 but pointing to content1 (hash1)
+		// Requesting hash2 but pointing to content1 (hash1).
+		// Leader already streamed the body under Content-Length; must abort
+		// the connection rather than completing a graceful response.
 
 		defer func() {
-			if r := recover(); r != nil {
-				// Expected panic
-				// We don't verify specific panic because singleflight wraps it.
-			} else {
-				t.Errorf("expected panic for hash mismatch")
+			if r := recover(); r != http.ErrAbortHandler {
+				t.Errorf("expected panic(http.ErrAbortHandler), got %v", r)
 			}
 		}()
 
@@ -294,6 +294,92 @@ func TestNewCASHandlerNilClientNotDefault(t *testing.T) {
 	}
 	if tr.ResponseHeaderTimeout != 30*time.Second {
 		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tr.ResponseHeaderTimeout)
+	}
+}
+
+func TestHashMismatchSingleflightWaiterGets502(t *testing.T) {
+	// Integrity failure must not panic inside singleflight: waiters never
+	// wrote a body and should receive 502 instead of ErrAbortHandler.
+	cacheDir := t.TempDir()
+	h := NewCASHandler(repository.NewLocalRepository(cacheDir, nil), nil, nil, t.Context())
+
+	// Gate origin so two concurrent cache-miss requests share one leader.
+	release := make(chan struct{})
+	var started atomic.Int32
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started.Add(1)
+		<-release
+		if _, err := w.Write([]byte("content1")); err != nil {
+			t.Errorf("origin write: %v", err)
+		}
+	}))
+	t.Cleanup(origin.Close)
+
+	wantHash := sha256Sum([]byte("content2")) // mismatch vs content1
+	sourceHeader := "\"" + origin.URL + "/file1\""
+
+	type result struct {
+		panicked any
+		code     int
+	}
+	results := make(chan result, 2)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/sha256/%s", wantHash), nil)
+			req.Header.Set("X-Source-Urls", sourceHeader)
+			w := httptest.NewRecorder()
+			var panicked any
+			func() {
+				defer func() { panicked = recover() }()
+				h.ServeHTTP(w, req)
+			}()
+			results <- result{panicked: panicked, code: w.Code}
+		}()
+	}
+
+	// Wait until the origin is hit (leader started streaming path), then release.
+	deadline := time.Now().Add(2 * time.Second)
+	for started.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if started.Load() == 0 {
+		close(release)
+		wg.Wait()
+		t.Fatal("origin was never contacted")
+	}
+	close(release)
+	wg.Wait()
+	close(results)
+
+	var leaderAborts, waiter502 int
+	for res := range results {
+		switch {
+		case res.panicked == http.ErrAbortHandler:
+			leaderAborts++
+		case res.panicked == nil && res.code == http.StatusBadGateway:
+			waiter502++
+		default:
+			t.Errorf("unexpected outcome: panic=%v code=%d", res.panicked, res.code)
+		}
+	}
+	if leaderAborts != 1 {
+		t.Errorf("leader aborts = %d, want 1", leaderAborts)
+	}
+	if waiter502 != 1 {
+		t.Errorf("waiter 502s = %d, want 1", waiter502)
+	}
+
+	// Mismatched body must not be committed to the CAS store.
+	exists, err := h.Local.Exists(t.Context(), "sha256", wantHash)
+	if err != nil {
+		t.Fatalf("Exists: %v", err)
+	}
+	if exists {
+		t.Error("hash-mismatched content was committed to cache")
 	}
 }
 
