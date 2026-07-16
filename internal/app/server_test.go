@@ -3,6 +3,7 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
@@ -64,5 +65,36 @@ func TestNewOutboundClientHeaderTimeout(t *testing.T) {
 	}
 	if client.Timeout != 0 {
 		t.Errorf("Client.Timeout = %v, want 0 (large CAS streams)", client.Timeout)
+	}
+}
+
+// NewServer must fail closed when the cache cannot be indexed — serving with
+// a broken eviction view under-counts usage and can skip capacity limits.
+func TestNewServerLoadInitialStateFailure(t *testing.T) {
+	cacheDir := t.TempDir()
+	// MkdirAll succeeds; walk fails because the directory is unreadable.
+	if err := os.Chmod(cacheDir, 0); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(cacheDir, 0o755); err != nil {
+			t.Errorf("restore Chmod: %v", err)
+		}
+	})
+
+	server, cleanup, err := NewServer(t.Context(), Config{
+		Port:             8080,
+		CacheDir:         cacheDir,
+		EvictionInterval: time.Minute,
+		EvictionStrategy: "lru",
+	})
+	if err == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		t.Fatal("NewServer: want error when LoadInitialState cannot walk cache")
+	}
+	if server != nil {
+		t.Error("NewServer: server must be nil on error")
 	}
 }

@@ -10,8 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fetchurl/fetchurl/internal/errutil"
-
 	"github.com/fetchurl/fetchurl/internal/eviction"
 	_ "github.com/fetchurl/fetchurl/internal/eviction/lru"
 	"github.com/fetchurl/fetchurl/internal/eviction/policy"
@@ -59,21 +57,23 @@ func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
 		slog.Info("No eviction policies configured (unlimited cache)")
 	}
 
+	if err := os.MkdirAll(cfg.CacheDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("failed to create cache directory: %w", err)
+	}
+
 	mgr := eviction.NewManager(cfg.CacheDir, policies, cfg.EvictionInterval, strat)
 
+	// Fail closed: a partial or failed scan leaves strategy/currentBytes wrong
+	// (e.g. under-counted usage → eviction never fires). Do not serve until
+	// the on-disk CAS index is loaded successfully.
 	if err := mgr.LoadInitialState(); err != nil {
-		errutil.LogMsg(err, "Failed to load initial cache state")
+		return nil, nil, fmt.Errorf("load initial cache state: %w", err)
 	}
 
 	// Use the context from Cobra, which is canceled on shutdown
 	appCtx, cancel := context.WithCancel(ctx)
 	// Start eviction manager
 	go mgr.Start(appCtx)
-
-	if err := os.MkdirAll(cfg.CacheDir, 0755); err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("failed to create cache directory: %w", err)
-	}
 
 	_, allowPrivate := os.LookupEnv("FETCHURL_ALLOW_PRIVATE_IPS")
 	httpClientForRequests := newOutboundClient(allowPrivate)
