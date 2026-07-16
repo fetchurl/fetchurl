@@ -68,6 +68,10 @@ func SeedCacheWithOptions(ctx context.Context, opts SeedOptions) (SeedResult, er
 	scanner := bufio.NewScanner(urlListFile)
 
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+
 		url := strings.TrimSpace(scanner.Text())
 		if url == "" {
 			continue
@@ -79,6 +83,10 @@ func SeedCacheWithOptions(ctx context.Context, opts SeedOptions) (SeedResult, er
 		result.Skipped += skipped
 		if err != nil {
 			result.Failed++
+			// Always log here: seedURL only sets up progress/finish logging after a
+			// successful HTTP response, so network and non-200 failures would
+			// otherwise be counted without a per-URL reason.
+			opts.Logger.Warn("Failed seeding URL", "url", url, "seeded", seeded, "skipped", skipped, "error", err)
 		}
 	}
 
@@ -216,12 +224,25 @@ func buildHashers() ([]hash.Hash, []string, error) {
 	return hashers, algorithms, nil
 }
 
+// startSeedProgress returns a writer for optional progress-bar bytes and a
+// finish callback. Start/success logging always goes through logger so library
+// callers (ProgressOut == nil) still get structured seed telemetry. Failure
+// logging is owned by SeedCacheWithOptions so HTTP errors before this helper
+// runs are not lost and mid-seed failures are not double-logged.
 func startSeedProgress(logger *slog.Logger, out io.Writer, url string, contentLength int64) (io.Writer, func(int, int, []string, error)) {
-	if out == nil {
-		return io.Discard, func(int, int, []string, error) {}
+	logger.Info("Seeding URL", "url", url, "content_length", contentLength)
+
+	finish := func(seeded int, skipped int, hashes []string, err error) {
+		if err != nil {
+			// Per-URL failure is logged by the SeedCacheWithOptions loop.
+			return
+		}
+		logger.Info("Finished seeding URL", "url", url, "seeded", seeded, "skipped", skipped, "hashes", hashes)
 	}
 
-	logger.Info("Seeding URL", "url", url, "content_length", contentLength)
+	if out == nil {
+		return io.Discard, finish
+	}
 
 	bar := progressbar.NewOptions64(
 		contentLength,
@@ -238,11 +259,5 @@ func startSeedProgress(logger *slog.Logger, out io.Writer, url string, contentLe
 		}),
 	)
 
-	return bar, func(seeded int, skipped int, hashes []string, err error) {
-		if err != nil {
-			logger.Warn("Failed seeding URL", "url", url, "seeded", seeded, "skipped", skipped, "error", err)
-			return
-		}
-		logger.Info("Finished seeding URL", "url", url, "seeded", seeded, "skipped", skipped, "hashes", hashes)
-	}
+	return bar, finish
 }
