@@ -26,13 +26,28 @@ func ValidateIP(host string, allowPrivate bool) error {
 	// We skip SSRF checks if explicitly allowed.
 	// This is necessary for testcontainers-based integration tests.
 	if !allowPrivate {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		// RFC 1918 / ULA private, loopback, unspecified, link-local (includes
+		// 169.254.169.254 cloud metadata), multicast, and RFC 6598 shared
+		// address space (CGNAT 100.64.0.0/10) used as internal ranges on many
+		// clouds and carrier NATs.
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+			ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.IsMulticast() || isSharedAddressSpace(ip) {
 			return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)
-		}
-		// Block AWS metadata IP explicitly just in case
-		if ip.Equal(net.ParseIP("169.254.169.254")) {
-			return fmt.Errorf("SSRF prevention: blocked access to metadata IP %s", ip)
 		}
 	}
 	return nil
+}
+
+// isSharedAddressSpace reports whether ip is in RFC 6598 Carrier-Grade NAT
+// space 100.64.0.0/10 (including IPv4-mapped IPv6 forms). net.IP.IsPrivate
+// does not cover this range, but it is not globally routable and is commonly
+// used for internal infrastructure.
+func isSharedAddressSpace(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	// 100.64.0.0/10 → second octet 64–127
+	return ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
 }
