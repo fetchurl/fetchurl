@@ -86,6 +86,11 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 // BeginWrite initiates a write operation for a file.
 // It creates a temporary file and returns it along with a commit function.
 // The commit function should be called after the file is fully written and verified.
+//
+// If the write is abandoned, callers must Close the returned writer. Close without
+// a successful commit removes the put-* temp so aborted fetches and failed seed
+// copies do not leave orphans under the cache root until the next process start.
+// Commit also removes the temp if rename/setup fails after the file is closed.
 func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() error, error) {
 	finalPath, err := r.getPath(algo, hash)
 	if err != nil {
@@ -99,28 +104,35 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		return nil, nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
 
-	committed := false
+	pw := &pendingWrite{f: tmpFile, name: tmpFile.Name()}
 
 	commit := func() error {
-		if committed {
+		if pw.committed {
 			return nil
 		}
-		// Close the file first
-		if err := tmpFile.Close(); err != nil {
+		if pw.closed {
+			return fmt.Errorf("cannot commit: write session already closed")
+		}
+
+		// Close the file first (does not delete — we still need the path for rename).
+		if err := pw.closeFile(); err != nil {
+			pw.removeTemp()
 			return fmt.Errorf("failed to close temp file: %w", err)
 		}
 
 		// Ensure destination directory exists
 		if err := os.MkdirAll(filepath.Dir(finalPath), 0755); err != nil {
+			pw.removeTemp()
 			return fmt.Errorf("failed to create algo/shard dir: %w", err)
 		}
 
 		// Move to final path
-		if err := os.Rename(tmpFile.Name(), finalPath); err != nil {
+		if err := os.Rename(pw.name, finalPath); err != nil {
+			pw.removeTemp()
 			return fmt.Errorf("failed to rename to final path: %w", err)
 		}
 
-		committed = true
+		pw.committed = true
 
 		// Update eviction
 		if r.eviction != nil {
@@ -136,5 +148,51 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		return nil
 	}
 
-	return tmpFile, commit, nil
+	return pw, commit, nil
+}
+
+// pendingWrite is an in-progress CAS object write. Closing without a successful
+// commit deletes the temp file (abort path).
+type pendingWrite struct {
+	f         *os.File
+	name      string
+	committed bool
+	closed    bool
+}
+
+func (p *pendingWrite) Write(b []byte) (int, error) {
+	if p.closed {
+		return 0, fmt.Errorf("write to closed pending write")
+	}
+	return p.f.Write(b)
+}
+
+// Close closes the temp file and, if commit never succeeded, removes it.
+func (p *pendingWrite) Close() error {
+	if p.closed {
+		return nil
+	}
+	err := p.closeFile()
+	if !p.committed {
+		if remErr := p.removeTemp(); remErr != nil {
+			if err != nil {
+				return fmt.Errorf("close temp: %w; remove temp: %v", err, remErr)
+			}
+			return remErr
+		}
+	}
+	return err
+}
+
+func (p *pendingWrite) closeFile() error {
+	p.closed = true
+	return p.f.Close()
+}
+
+func (p *pendingWrite) removeTemp() error {
+	if err := os.Remove(p.name); err != nil && !os.IsNotExist(err) {
+		errutil.ReportError(err, "Failed to remove write temp", "path", p.name)
+		return err
+	}
+	return nil
 }

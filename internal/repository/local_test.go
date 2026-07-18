@@ -136,3 +136,83 @@ func TestLocalRepository(t *testing.T) {
 		}
 	})
 }
+
+// Close without commit must remove the put-* temp so aborted writes do not
+// linger under the cache root until the next LoadInitialState sweep.
+func TestBeginWriteCloseAbortsTemp(t *testing.T) {
+	cacheDir := t.TempDir()
+	repo := NewLocalRepository(cacheDir, nil)
+	algo := "sha256"
+	hash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	w, commit, err := repo.BeginWrite(algo, hash)
+	if err != nil {
+		t.Fatalf("BeginWrite: %v", err)
+	}
+	if _, err := io.WriteString(w, "partial"); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	tempsBefore := listPutTemps(t, cacheDir)
+	if len(tempsBefore) != 1 {
+		t.Fatalf("put temps before close = %v, want 1", tempsBefore)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if temps := listPutTemps(t, cacheDir); len(temps) != 0 {
+		t.Fatalf("put temps after Close abort = %v, want none", temps)
+	}
+	// Commit after abort must fail and must not create a CAS object.
+	if err := commit(); err == nil {
+		t.Fatal("commit after Close: want error")
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, algo, hash[:2], hash)); !os.IsNotExist(err) {
+		t.Fatalf("CAS object should not exist after abort, stat err=%v", err)
+	}
+}
+
+// When commit cannot install the object (e.g. path component is a file), the
+// closed temp must still be removed rather than left as a put-* orphan.
+func TestBeginWriteCommitFailureRemovesTemp(t *testing.T) {
+	cacheDir := t.TempDir()
+	repo := NewLocalRepository(cacheDir, nil)
+	algo := "sha256"
+	hash := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	// Block MkdirAll(algo/shard): make the algo path a regular file.
+	if err := os.WriteFile(filepath.Join(cacheDir, algo), []byte("not-a-dir"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	w, commit, err := repo.BeginWrite(algo, hash)
+	if err != nil {
+		t.Fatalf("BeginWrite: %v", err)
+	}
+	if _, err := io.WriteString(w, "data"); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if err := commit(); err == nil {
+		t.Fatal("commit: want error when algo path is a file")
+	}
+	if temps := listPutTemps(t, cacheDir); len(temps) != 0 {
+		t.Fatalf("put temps after failed commit = %v, want none", temps)
+	}
+}
+
+func listPutTemps(t *testing.T, cacheDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	var temps []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "put-") {
+			temps = append(temps, e.Name())
+		}
+	}
+	return temps
+}
