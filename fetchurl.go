@@ -21,6 +21,10 @@ var (
 	// ErrUnsupportedAlgorithm is returned when the requested hash algorithm is not supported.
 	ErrUnsupportedAlgorithm = errors.New("unsupported algorithm")
 
+	// ErrInvalidDigest is returned when the digest is not a hex string of the
+	// length required by the algorithm (same rules as the server).
+	ErrInvalidDigest = errors.New("invalid digest")
+
 	// ErrHashMismatch is returned when the downloaded content does not match the expected hash.
 	ErrHashMismatch = errors.New("hash mismatch")
 
@@ -100,6 +104,14 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 	// Match server behavior: digests are compared against hex.EncodeToString
 	// (always lowercase). Normalize so mixed-case CLI/SDK hashes still verify.
 	opts.Algo = hashutil.NormalizeAlgo(opts.Algo)
+	// Reject non-hex / wrong-length digests before any network I/O. The server
+	// already does this; without the same check, a garbage hash is embedded in
+	// the CAS URL path (fmt.Sprintf("%s/%s/%s", base, algo, hash)) and can
+	// escape the intended /api/fetchurl/… prefix after HTTP path cleaning
+	// (e.g. hash ".." → request a path outside the CAS router).
+	if !hashutil.IsValidDigest(opts.Algo, opts.Hash) {
+		return fmt.Errorf("%w: expected hex digest of the correct length for %s", ErrInvalidDigest, opts.Algo)
+	}
 	opts.Hash = strings.ToLower(opts.Hash)
 
 	cw := &countingWriter{Writer: opts.Out}

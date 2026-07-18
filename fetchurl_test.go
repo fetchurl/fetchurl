@@ -232,6 +232,46 @@ func TestFetcher(t *testing.T) {
 		}
 	})
 
+	t.Run("Invalid Digest Rejected Before Network", func(t *testing.T) {
+		// Path-escaping or wrong-length digests must not be dialed: they are
+		// interpolated into the CAS request path on FETCHURL_SERVER.
+		var dialed bool
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			dialed = true
+			t.Errorf("unexpected request for invalid digest: %s", r.URL.Path)
+			w.WriteHeader(http.StatusTeapot)
+		}))
+		defer ts.Close()
+
+		t.Setenv("FETCHURL_SERVER", ts.URL+"/api/fetchurl")
+		f := NewFetcher(nil)
+		var out bytes.Buffer
+		for _, bad := range []string{
+			"..",
+			"deadbeef",
+			"../../../etc/passwd",
+			hash + "aa",
+			"gg" + hash[2:], // non-hex
+		} {
+			out.Reset()
+			err := f.Fetch(t.Context(), FetchOptions{
+				Algo: "sha256",
+				Hash: bad,
+				URLs: []string{ts.URL + "/source"},
+				Out:  &out,
+			})
+			if !errors.Is(err, ErrInvalidDigest) {
+				t.Errorf("hash %q: want ErrInvalidDigest, got %v", bad, err)
+			}
+			if out.Len() != 0 {
+				t.Errorf("hash %q: wrote %d bytes, want none", bad, out.Len())
+			}
+		}
+		if dialed {
+			t.Error("invalid digests triggered network I/O")
+		}
+	})
+
 	t.Run("Missing Source URLs", func(t *testing.T) {
 		f := NewFetcher(nil)
 		var out bytes.Buffer
