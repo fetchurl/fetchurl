@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,15 +22,7 @@ var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Starts the HTTP server",
 	Run: func(cmd *cobra.Command, args []string) {
-		cfg := app.Config{
-			Port:             viper.GetInt("port"),
-			CacheDir:         viper.GetString("cache-dir"),
-			MaxCacheSize:     viper.GetInt64("max-cache-size"),
-			MinFreeSpace:     viper.GetInt64("min-free-space"),
-			EvictionInterval: viper.GetDuration("eviction-interval"),
-			EvictionStrategy: viper.GetString("eviction-strategy"),
-			Upstreams:        viper.GetStringSlice("upstream"),
-		}
+		cfg := serverConfigFromViper()
 
 		server, cleanup, err := app.NewServer(cmd.Context(), cfg)
 		if err != nil {
@@ -87,7 +80,7 @@ func init() {
 	serverCmd.Flags().Int64("min-free-space", 0, "Min free disk space in bytes (if set, overrides max-cache-size)")
 	serverCmd.Flags().Duration("eviction-interval", time.Minute, "Interval to check for evictions")
 	serverCmd.Flags().String("eviction-strategy", "lru", "Eviction strategy to use (lru)")
-	serverCmd.Flags().StringSlice("upstream", []string{}, "Upstream fetchurl servers")
+	serverCmd.Flags().StringSlice("upstream", []string{}, "Upstream fetchurl servers (repeatable or comma-separated; same for FETCHURL_UPSTREAM)")
 
 	mustBindPFlag("port", serverCmd.Flags().Lookup("port"))
 	mustBindPFlag("cache-dir", serverCmd.Flags().Lookup("cache-dir"))
@@ -105,6 +98,48 @@ func init() {
 	mustBindEnv("eviction-interval", "FETCHURL_EVICTION_INTERVAL")
 	mustBindEnv("eviction-strategy", "FETCHURL_EVICTION_STRATEGY")
 	mustBindEnv("upstream", "FETCHURL_UPSTREAM")
+}
+
+func serverConfigFromViper() app.Config {
+	return app.Config{
+		Port:             viper.GetInt("port"),
+		CacheDir:         viper.GetString("cache-dir"),
+		MaxCacheSize:     viper.GetInt64("max-cache-size"),
+		MinFreeSpace:     viper.GetInt64("min-free-space"),
+		EvictionInterval: viper.GetDuration("eviction-interval"),
+		EvictionStrategy: viper.GetString("eviction-strategy"),
+		Upstreams:        configUpstreams(),
+	}
+}
+
+// configUpstreams returns daisy-chain upstream base URLs from --upstream /
+// FETCHURL_UPSTREAM.
+//
+// viper.GetStringSlice uses cast.ToStringSlice, which splits raw env strings on
+// whitespace only (strings.Fields). That breaks the usual Docker/k8s form
+// FETCHURL_UPSTREAM=url1,url2 (one element) and mangles "url1, url2" into
+// "url1," + "url2". Re-normalize with comma splitting so env matches pflag
+// StringSlice CSV semantics; space-separated values still work.
+func configUpstreams() []string {
+	return normalizeCSVList(viper.GetStringSlice("upstream"))
+}
+
+// normalizeCSVList flattens a string list by splitting each entry on commas and
+// trimming space. Empty segments are dropped.
+func normalizeCSVList(parts []string) []string {
+	if len(parts) == 0 {
+		return nil
+	}
+	var out []string
+	for _, p := range parts {
+		for _, item := range strings.Split(p, ",") {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+	}
+	return out
 }
 
 func mustBindEnv(key, env string) {
