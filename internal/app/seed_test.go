@@ -2,10 +2,12 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -124,6 +126,116 @@ func TestSeedCacheReportsProgress(t *testing.T) {
 	}
 	if !strings.Contains(logText, "sha1:"+hashSHA1(content)) || !strings.Contains(logText, "sha256:"+hashSHA256(content)) || !strings.Contains(logText, "sha512:"+hashSHA512(content)) {
 		t.Fatalf("missing hashes in seed completion slog in %q", logText)
+	}
+}
+
+func TestSeedCacheLogsHTTPFailuresWithoutProgress(t *testing.T) {
+	urlList := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(urlList, []byte(strings.Join([]string{
+		"https://example.test/ok",
+		"https://example.test/missing",
+	}, "\n")), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	content := []byte("ok-body")
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.String() {
+			case "https://example.test/ok":
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(bytes.NewReader(content)),
+					Header:     make(http.Header),
+				}, nil
+			case "https://example.test/missing":
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(bytes.NewReader(nil)),
+					Header:     make(http.Header),
+				}, nil
+			default:
+				t.Fatalf("unexpected URL: %s", req.URL.String())
+				return nil, nil
+			}
+		}),
+	}
+
+	var logOutput bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logOutput, nil))
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+	result, err := SeedCacheWithOptions(t.Context(), SeedOptions{
+		CacheDir:    cacheDir,
+		URLListPath: urlList,
+		Client:      client,
+		Logger:      logger,
+		// ProgressOut intentionally nil — regression for silent HTTP failures.
+	})
+	if err == nil {
+		t.Fatal("expected seed error for failed URL")
+	}
+	if result.Processed != 2 {
+		t.Fatalf("Processed = %d, want 2", result.Processed)
+	}
+	if result.Failed != 1 {
+		t.Fatalf("Failed = %d, want 1", result.Failed)
+	}
+	if result.Seeded != 3 {
+		t.Fatalf("Seeded = %d, want 3", result.Seeded)
+	}
+
+	logText := logOutput.String()
+	if !strings.Contains(logText, "msg=\"Failed seeding URL\"") {
+		t.Fatalf("missing failure slog in %q", logText)
+	}
+	if !strings.Contains(logText, "url=https://example.test/missing") {
+		t.Fatalf("missing failed URL in slog %q", logText)
+	}
+	if !strings.Contains(logText, "unexpected status 404") {
+		t.Fatalf("missing status detail in slog %q", logText)
+	}
+	// Success path still logs when ProgressOut is nil.
+	if !strings.Contains(logText, "msg=\"Finished seeding URL\"") || !strings.Contains(logText, "url=https://example.test/ok") {
+		t.Fatalf("missing success slog without progress in %q", logText)
+	}
+}
+
+func TestSeedCacheHonorsContextCancel(t *testing.T) {
+	urlList := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(urlList, []byte(strings.Join([]string{
+		"https://example.test/a",
+		"https://example.test/b",
+	}, "\n")), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			// Cancel before the second URL is processed so the loop's ctx check fires.
+			cancel()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader([]byte("x"))),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	result, err := SeedCacheWithOptions(ctx, SeedOptions{
+		CacheDir:    filepath.Join(t.TempDir(), "cache"),
+		URLListPath: urlList,
+		Client:      client,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if result.Processed != 1 {
+		t.Fatalf("Processed = %d, want 1 (stop before second URL)", result.Processed)
 	}
 }
 
