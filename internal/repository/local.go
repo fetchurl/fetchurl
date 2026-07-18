@@ -87,10 +87,13 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 // It creates a temporary file and returns it along with a commit function.
 // The commit function should be called after the file is fully written and verified.
 //
+// Commit fsyncs the temp, then renames it into the sharded CAS path so a crash
+// mid-commit cannot leave a truncated object under the final digest path.
+//
 // If the write is abandoned, callers must Close the returned writer. Close without
 // a successful commit removes the put-* temp so aborted fetches and failed seed
 // copies do not leave orphans under the cache root until the next process start.
-// Commit also removes the temp if rename/setup fails after the file is closed.
+// Commit also removes the temp if sync/rename/setup fails after the file is closed.
 func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() error, error) {
 	finalPath, err := r.getPath(algo, hash)
 	if err != nil {
@@ -112,6 +115,20 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		}
 		if pw.closed {
 			return fmt.Errorf("cannot commit: write session already closed")
+		}
+
+		// Flush file data to stable storage before we close and rename. Without
+		// this, a crash after rename can leave a truncated CAS object under the
+		// final path (kernel page cache not yet written), which later serves as
+		// a false cache hit with the wrong bytes.
+		if err := pw.f.Sync(); err != nil {
+			// Still close+remove so the put-* temp does not linger.
+			closeErr := pw.closeFile()
+			remErr := pw.removeTemp()
+			if closeErr != nil || remErr != nil {
+				return fmt.Errorf("failed to sync temp file: %w (close: %v, remove: %v)", err, closeErr, remErr)
+			}
+			return fmt.Errorf("failed to sync temp file: %w", err)
 		}
 
 		// Close the file first (does not delete — we still need the path for rename).

@@ -173,6 +173,38 @@ func TestBeginWriteCloseAbortsTemp(t *testing.T) {
 	}
 }
 
+// Commit must leave a full, readable CAS object (sync-before-rename path).
+func TestBeginWriteCommitPersistsFullContent(t *testing.T) {
+	cacheDir := t.TempDir()
+	repo := NewLocalRepository(cacheDir, nil)
+	algo := "sha256"
+	hash := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	content := strings.Repeat("cas-payload-", 1024)
+
+	w, commit, err := repo.BeginWrite(algo, hash)
+	if err != nil {
+		t.Fatalf("BeginWrite: %v", err)
+	}
+	if _, err := io.WriteString(w, content); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	path := filepath.Join(cacheDir, algo, hash[:2], hash)
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != content {
+		t.Fatalf("persisted content length=%d, want %d", len(got), len(content))
+	}
+	if temps := listPutTemps(t, cacheDir); len(temps) != 0 {
+		t.Fatalf("put temps after commit = %v, want none", temps)
+	}
+}
+
 // When commit cannot install the object (e.g. path component is a file), the
 // closed temp must still be removed rather than left as a put-* orphan.
 func TestBeginWriteCommitFailureRemovesTemp(t *testing.T) {
