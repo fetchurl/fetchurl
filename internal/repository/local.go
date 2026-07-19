@@ -87,8 +87,9 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 // It creates a temporary file and returns it along with a commit function.
 // The commit function should be called after the file is fully written and verified.
 //
-// Commit fsyncs the temp, then renames it into the sharded CAS path so a crash
-// mid-commit cannot leave a truncated object under the final digest path.
+// Commit fsyncs the temp, renames it into the sharded CAS path, then fsyncs the
+// destination directory so a crash mid-commit cannot leave a truncated object
+// under the final digest path or lose the directory entry for a complete object.
 //
 // If the write is abandoned, callers must Close the returned writer. Close without
 // a successful commit removes the put-* temp so aborted fetches and failed seed
@@ -138,7 +139,8 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		}
 
 		// Ensure destination directory exists
-		if err := os.MkdirAll(filepath.Dir(finalPath), 0755); err != nil {
+		destDir := filepath.Dir(finalPath)
+		if err := os.MkdirAll(destDir, 0755); err != nil {
 			pw.removeTemp()
 			return fmt.Errorf("failed to create algo/shard dir: %w", err)
 		}
@@ -147,6 +149,15 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		if err := os.Rename(pw.name, finalPath); err != nil {
 			pw.removeTemp()
 			return fmt.Errorf("failed to rename to final path: %w", err)
+		}
+
+		// Durably record the new directory entry. File Sync above makes object
+		// bytes stable; without a directory fsync, a power loss can still drop
+		// the rename so the CAS path is missing after reboot (spec: addition
+		// MUST be atomic). The object already lives at finalPath — if dir sync
+		// fails we keep it and report rather than delete a complete object.
+		if err := fsyncDir(destDir); err != nil {
+			errutil.ReportError(err, "Failed to fsync CAS directory after rename", "dir", destDir, "path", finalPath)
 		}
 
 		pw.committed = true
@@ -166,6 +177,21 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 	}
 
 	return pw, commit, nil
+}
+
+// fsyncDir flushes directory metadata (e.g. the rename that installed a CAS
+// object) to stable storage.
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	syncErr := d.Sync()
+	closeErr := d.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
 }
 
 // pendingWrite is an in-progress CAS object write. Closing without a successful
