@@ -101,7 +101,7 @@ func init() {
 }
 
 func serverConfigFromViper() app.Config {
-	return app.Config{
+	cfg := app.Config{
 		Port:             viper.GetInt("port"),
 		CacheDir:         viper.GetString("cache-dir"),
 		MaxCacheSize:     viper.GetInt64("max-cache-size"),
@@ -110,6 +110,13 @@ func serverConfigFromViper() app.Config {
 		EvictionStrategy: viper.GetString("eviction-strategy"),
 		Upstreams:        configUpstreams(),
 	}
+	// Flag/env contract: min-free-space, when set, replaces max-cache-size.
+	// NewServer enables each policy only when its threshold is > 0; without
+	// this, the 1GiB default max-cache-size would still run alongside min-free.
+	if cfg.MinFreeSpace > 0 {
+		cfg.MaxCacheSize = 0
+	}
+	return cfg
 }
 
 // configUpstreams returns daisy-chain upstream base URLs from --upstream /

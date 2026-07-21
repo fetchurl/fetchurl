@@ -66,3 +66,37 @@ func TestConfigUpstreamsFromEnv(t *testing.T) {
 		t.Fatalf("empty env: got %#v, want nil", got)
 	}
 }
+
+func TestServerConfigMinFreeOverridesMaxCache(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	const defaultMax = int64(1024 * 1024 * 1024)
+
+	viper.Set("max-cache-size", defaultMax)
+	viper.Set("min-free-space", int64(0))
+	viper.Set("port", 8080)
+	viper.Set("cache-dir", "./cache")
+	viper.Set("eviction-interval", "1m")
+	viper.Set("eviction-strategy", "lru")
+
+	cfg := serverConfigFromViper()
+	if cfg.MaxCacheSize != defaultMax {
+		t.Fatalf("without min-free: MaxCacheSize = %d, want default %d", cfg.MaxCacheSize, defaultMax)
+	}
+	if cfg.MinFreeSpace != 0 {
+		t.Fatalf("without min-free: MinFreeSpace = %d, want 0", cfg.MinFreeSpace)
+	}
+
+	const minFree = int64(5 * 1024 * 1024 * 1024)
+	viper.Set("min-free-space", minFree)
+	// Leave max-cache-size at the default; override must zero it so NewServer
+	// does not install both policies.
+	cfg = serverConfigFromViper()
+	if cfg.MinFreeSpace != minFree {
+		t.Fatalf("with min-free: MinFreeSpace = %d, want %d", cfg.MinFreeSpace, minFree)
+	}
+	if cfg.MaxCacheSize != 0 {
+		t.Fatalf("with min-free: MaxCacheSize = %d, want 0 (overridden)", cfg.MaxCacheSize)
+	}
+}
