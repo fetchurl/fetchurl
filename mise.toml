@@ -1,5 +1,5 @@
 [tools]
-go = "1.25.6"
+go = "1.25.12"
 "go:golang.org/x/tools/gopls" = "0.21.0"
 "github:lucasew/workspaced" = "0.1.2"
 svu = "3.3.0"
