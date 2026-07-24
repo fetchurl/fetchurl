@@ -248,3 +248,77 @@ func listPutTemps(t *testing.T, cacheDir string) []string {
 	}
 	return temps
 }
+
+// A symlink planted under the CAS digest path must not be treated as a cache
+// hit or readable object — following it would leak host files outside CacheDir.
+func TestCASSymlinkNotServed(t *testing.T) {
+	cacheDir := t.TempDir()
+	repo := NewLocalRepository(cacheDir, nil)
+	ctx := context.Background()
+	algo := "sha256"
+	hash := "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
+	secretDir := t.TempDir()
+	secretPath := filepath.Join(secretDir, "secret")
+	if err := os.WriteFile(secretPath, []byte("leaked-host-bytes"), 0o600); err != nil {
+		t.Fatalf("WriteFile secret: %v", err)
+	}
+
+	casPath := filepath.Join(cacheDir, algo, hash[:2], hash)
+	if err := os.MkdirAll(filepath.Dir(casPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Symlink(secretPath, casPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	exists, err := repo.Exists(ctx, algo, hash)
+	if err == nil && exists {
+		t.Fatal("Exists: symlink must not count as a CAS object")
+	}
+	if exists {
+		t.Fatalf("Exists returned true for symlink (err=%v)", err)
+	}
+
+	if rc, _, err := repo.Get(ctx, algo, hash); err == nil {
+		_ = rc.Close()
+		t.Fatal("Get: accepted symlink CAS path")
+	}
+
+	// Commit must install a regular file, replacing the symlink rather than
+	// writing through it to the host target.
+	w, commit, err := repo.BeginWrite(algo, hash)
+	if err != nil {
+		t.Fatalf("BeginWrite: %v", err)
+	}
+	const payload = "cas-object-bytes"
+	if _, err := io.WriteString(w, payload); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := commit(); err != nil {
+		t.Fatalf("commit over symlink: %v", err)
+	}
+
+	info, err := os.Lstat(casPath)
+	if err != nil {
+		t.Fatalf("Lstat after commit: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("after commit: CAS path still a symlink")
+	}
+	got, err := os.ReadFile(casPath)
+	if err != nil {
+		t.Fatalf("ReadFile CAS: %v", err)
+	}
+	if string(got) != payload {
+		t.Fatalf("CAS content = %q, want %q", got, payload)
+	}
+	// Host secret must be untouched.
+	sec, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatalf("ReadFile secret: %v", err)
+	}
+	if string(sec) != "leaked-host-bytes" {
+		t.Fatalf("host secret was modified: %q", sec)
+	}
+}
