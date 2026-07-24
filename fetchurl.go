@@ -197,6 +197,12 @@ func (f *Fetcher) fetchDirect(ctx context.Context, url, algo, hashStr string, ou
 	return f.doRequest(req, algo, hashStr, out)
 }
 
+// maxErrorBodyDrain is how many bytes of a non-OK response body we will read
+// before closing. Enough to free the connection for keep-alive reuse on the
+// next server/source attempt, without pinning multi-GB error pages in memory
+// or stalling the fallback loop.
+const maxErrorBodyDrain = 32 << 10 // 32 KiB
+
 func (f *Fetcher) doRequest(req *http.Request, algo, expectedHash string, out io.Writer) error {
 	resp, err := f.Client.Do(req)
 	if err != nil {
@@ -207,6 +213,12 @@ func (f *Fetcher) doRequest(req *http.Request, algo, expectedHash string, out io
 	}()
 
 	if resp.StatusCode != http.StatusOK {
+		// Close alone does not guarantee HTTP/1.x connection reuse when the
+		// body was not fully consumed. Fetcher may try several servers/sources
+		// in one call; drain a bounded prefix so idle conns can be recycled.
+		if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBodyDrain)); drainErr != nil {
+			errutil.LogMsg(drainErr, "Failed to drain non-OK response body")
+		}
 		return &HTTPStatusError{StatusCode: resp.StatusCode}
 	}
 
