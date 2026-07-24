@@ -10,10 +10,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -236,6 +239,78 @@ func TestSeedCacheHonorsContextCancel(t *testing.T) {
 	}
 	if result.Processed != 1 {
 		t.Fatalf("Processed = %d, want 1 (stop before second URL)", result.Processed)
+	}
+}
+
+// Non-OK seed responses must drain a bounded body so HTTP/1 keep-alive can
+// reuse the TCP connection for later URLs in the same seed run.
+func TestSeedCacheDrainsNonOKBodyForReuse(t *testing.T) {
+	content := []byte("seed-ok")
+	var newConns atomic.Int32
+
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/missing":
+			w.WriteHeader(http.StatusNotFound)
+			// Body large enough that skipping drain would typically prevent
+			// reuse (and larger than a tiny error page).
+			if _, err := w.Write(bytes.Repeat([]byte("e"), 8192)); err != nil {
+				t.Errorf("write error body: %v", err)
+			}
+		case "/ok":
+			if _, err := w.Write(content); err != nil {
+				t.Errorf("write content: %v", err)
+			}
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	ts.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			newConns.Add(1)
+		}
+	}
+	ts.Start()
+	t.Cleanup(ts.Close)
+
+	urlList := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(urlList, []byte(strings.Join([]string{
+		ts.URL + "/missing",
+		ts.URL + "/ok",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Explicit transport: keep-alive on, single idle conn per host so a
+	// second dial is visible if the first response was not drained.
+	client := &http.Client{
+		Transport: &http.Transport{
+			DisableKeepAlives:   false,
+			MaxIdleConnsPerHost: 1,
+		},
+	}
+
+	result, err := SeedCacheWithOptions(t.Context(), SeedOptions{
+		CacheDir:    filepath.Join(t.TempDir(), "cache"),
+		URLListPath: urlList,
+		Client:      client,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err == nil {
+		t.Fatal("expected seed error for failed URL")
+	}
+	if result.Processed != 2 {
+		t.Fatalf("Processed = %d, want 2", result.Processed)
+	}
+	if result.Failed != 1 {
+		t.Fatalf("Failed = %d, want 1", result.Failed)
+	}
+	if result.Seeded != 3 {
+		t.Fatalf("Seeded = %d, want 3 (one URL × three algos)", result.Seeded)
+	}
+	if n := newConns.Load(); n != 1 {
+		t.Fatalf("new TCP connections = %d, want 1 (keep-alive reuse after non-OK drain)", n)
 	}
 }
 
