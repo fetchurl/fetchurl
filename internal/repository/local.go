@@ -17,6 +17,10 @@ import (
 //
 // It uses a directory structure of {cacheDir}/{algo}/{shard}/{hash} to store files.
 // Shard is the first two characters of the hash.
+//
+// Object I/O is scoped with os.Root so path components and symlinks cannot
+// escape CacheDir (string Clean+prefix checks alone still follow a symlink
+// planted under the cache tree to an arbitrary host path).
 type LocalRepository struct {
 	CacheDir string
 	eviction *eviction.Manager
@@ -36,51 +40,102 @@ func (r *LocalRepository) getRelPath(algo, hash string) string {
 	return filepath.Join(algo, hash[:2], hash)
 }
 
-// getPath resolves the on-disk path for algo/hash and rejects any
-// resolution that escapes CacheDir (defense in depth against path
-// traversal if a caller skips digest validation).
-func (r *LocalRepository) getPath(algo, hash string) (string, error) {
-	full := filepath.Clean(filepath.Join(r.CacheDir, r.getRelPath(algo, hash)))
-	root := filepath.Clean(r.CacheDir)
-	if full != root && !strings.HasPrefix(full, root+string(os.PathSeparator)) {
+// casRel returns the CAS object path relative to CacheDir, rejecting names
+// that Clean to ".." or otherwise escape the root as a string. os.Root is
+// still used at open time so symlinks cannot complete an escape.
+func (r *LocalRepository) casRel(algo, hash string) (string, error) {
+	rel := filepath.Clean(r.getRelPath(algo, hash))
+	if rel == "" || rel == "." || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(os.PathSeparator)) ||
+		filepath.IsAbs(rel) {
 		return "", fmt.Errorf("hash path escapes cache directory")
 	}
-	return full, nil
+	return rel, nil
+}
+
+func (r *LocalRepository) openRoot() (*os.Root, error) {
+	root, err := os.OpenRoot(r.CacheDir)
+	if err != nil {
+		return nil, fmt.Errorf("open cache root: %w", err)
+	}
+	return root, nil
 }
 
 func (r *LocalRepository) Exists(ctx context.Context, algo, hash string) (bool, error) {
-	path, err := r.getPath(algo, hash)
+	rel, err := r.casRel(algo, hash)
 	if err != nil {
 		return false, err
 	}
-	_, err = os.Stat(path)
-	if err == nil {
-		return true, nil
+	root, err := r.openRoot()
+	if err != nil {
+		return false, err
 	}
-	if os.IsNotExist(err) {
-		return false, nil
+	defer func() {
+		errutil.LogMsg(root.Close(), "Failed to close cache root")
+	}()
+
+	// Lstat: do not follow a symlink that could point outside CacheDir.
+	info, err := root.Lstat(rel)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	return false, err
+	if !info.Mode().IsRegular() {
+		// Symlink/dir/device under a digest path is not a CAS object.
+		return false, fmt.Errorf("CAS path is not a regular file")
+	}
+	return true, nil
 }
 
 func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCloser, int64, error) {
-	path, err := r.getPath(algo, hash)
+	rel, err := r.casRel(algo, hash)
 	if err != nil {
 		return nil, 0, err
 	}
-	f, err := os.Open(path)
+	root, err := r.openRoot()
 	if err != nil {
 		return nil, 0, err
 	}
-	info, err := f.Stat()
+	// Close root after Open: the returned *os.File stays valid; Root only
+	// scopes path resolution. Defer close once we have finished opening.
+	var rootClosed bool
+	closeRoot := func() {
+		if !rootClosed {
+			rootClosed = true
+			errutil.LogMsg(root.Close(), "Failed to close cache root")
+		}
+	}
+	defer closeRoot()
+
+	info, err := root.Lstat(rel)
 	if err != nil {
-		errutil.ReportError(f.Close(), "Failed to close file after stat error", "path", path)
 		return nil, 0, err
 	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, fmt.Errorf("CAS path is not a regular file")
+	}
+
+	f, err := root.Open(rel)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Re-check after open: TOCTOU against a symlink swap between Lstat and Open.
+	fi, err := f.Stat()
+	if err != nil {
+		errutil.ReportError(f.Close(), "Failed to close file after stat error", "path", rel)
+		return nil, 0, err
+	}
+	if !fi.Mode().IsRegular() {
+		errutil.ReportError(f.Close(), "Failed to close non-regular CAS file", "path", rel)
+		return nil, 0, fmt.Errorf("CAS path is not a regular file")
+	}
+
 	if r.eviction != nil {
-		r.eviction.Touch(r.getRelPath(algo, hash))
+		r.eviction.Touch(rel)
 	}
-	return f, info.Size(), nil
+	return f, fi.Size(), nil
 }
 
 // BeginWrite initiates a write operation for a file.
@@ -96,7 +151,7 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 // copies do not leave orphans under the cache root until the next process start.
 // Commit also removes the temp if sync/rename/setup fails after the file is closed.
 func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() error, error) {
-	finalPath, err := r.getPath(algo, hash)
+	rel, err := r.casRel(algo, hash)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -109,6 +164,7 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 	}
 
 	pw := &pendingWrite{f: tmpFile, name: tmpFile.Name()}
+	tmpBase := filepath.Base(tmpFile.Name())
 
 	commit := func() error {
 		if pw.committed {
@@ -138,15 +194,27 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 			return fmt.Errorf("failed to close temp file: %w", err)
 		}
 
-		// Ensure destination directory exists
-		destDir := filepath.Dir(finalPath)
-		if err := os.MkdirAll(destDir, 0755); err != nil {
+		root, err := r.openRoot()
+		if err != nil {
 			pw.removeTemp()
-			return fmt.Errorf("failed to create algo/shard dir: %w", err)
+			return err
+		}
+		defer func() {
+			errutil.LogMsg(root.Close(), "Failed to close cache root")
+		}()
+
+		// Ensure destination directory exists (scoped to cache root).
+		destDir := filepath.Dir(rel)
+		if destDir != "." && destDir != "" {
+			if err := root.MkdirAll(destDir, 0755); err != nil {
+				pw.removeTemp()
+				return fmt.Errorf("failed to create algo/shard dir: %w", err)
+			}
 		}
 
-		// Move to final path
-		if err := os.Rename(pw.name, finalPath); err != nil {
+		// Move to final path within the root so a symlink at the destination
+		// cannot redirect the install outside CacheDir.
+		if err := root.Rename(tmpBase, rel); err != nil {
 			pw.removeTemp()
 			return fmt.Errorf("failed to rename to final path: %w", err)
 		}
@@ -154,21 +222,21 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 		// Durably record the new directory entry. File Sync above makes object
 		// bytes stable; without a directory fsync, a power loss can still drop
 		// the rename so the CAS path is missing after reboot (spec: addition
-		// MUST be atomic). The object already lives at finalPath — if dir sync
+		// MUST be atomic). The object already lives at rel — if dir sync
 		// fails we keep it and report rather than delete a complete object.
-		if err := fsyncDir(destDir); err != nil {
-			errutil.ReportError(err, "Failed to fsync CAS directory after rename", "dir", destDir, "path", finalPath)
+		if err := fsyncRootDir(root, destDir); err != nil {
+			errutil.ReportError(err, "Failed to fsync CAS directory after rename", "dir", destDir, "path", rel)
 		}
 
 		pw.committed = true
 
 		// Update eviction
 		if r.eviction != nil {
-			info, err := os.Stat(finalPath)
+			info, err := root.Stat(rel)
 			if err != nil {
-				errutil.ReportError(err, "Failed to stat committed file", "path", finalPath)
+				errutil.ReportError(err, "Failed to stat committed file", "path", rel)
 			} else {
-				r.eviction.Add(r.getRelPath(algo, hash), info.Size())
+				r.eviction.Add(rel, info.Size())
 				slog.Info("Stored file", "algo", algo, "hash", hash, "size", info.Size())
 			}
 		}
@@ -179,10 +247,12 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 	return pw, commit, nil
 }
 
-// fsyncDir flushes directory metadata (e.g. the rename that installed a CAS
-// object) to stable storage.
-func fsyncDir(dir string) error {
-	d, err := os.Open(dir)
+// fsyncRootDir flushes directory metadata for a path relative to root.
+func fsyncRootDir(root *os.Root, dir string) error {
+	if dir == "" || dir == "." {
+		dir = "."
+	}
+	d, err := root.Open(dir)
 	if err != nil {
 		return err
 	}
