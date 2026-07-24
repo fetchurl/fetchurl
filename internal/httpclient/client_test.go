@@ -23,6 +23,11 @@ func TestNewTransportBounds(t *testing.T) {
 	if tr.DialContext == nil {
 		t.Error("DialContext is nil")
 	}
+	// Base transport must not honor HTTP(S)_PROXY. Server SSRF filters hang
+	// off DialContext; a proxy hop would dial only the proxy and bypass IP checks.
+	if tr.Proxy != nil {
+		t.Error("NewTransport Proxy must be nil so DialContext sees the real peer")
+	}
 }
 
 func TestNewUsesBoundedTransport(t *testing.T) {
@@ -36,5 +41,12 @@ func TestNewUsesBoundedTransport(t *testing.T) {
 	}
 	if tr.ResponseHeaderTimeout != 30*time.Second {
 		t.Errorf("ResponseHeaderTimeout = %v, want 30s", tr.ResponseHeaderTimeout)
+	}
+	if tr.Proxy == nil {
+		t.Error("New() must set Proxy so CLI/library clients honor HTTP(S)_PROXY")
+	}
+	// New must not mutate the shared defaults of a later NewTransport().
+	if NewTransport().Proxy != nil {
+		t.Error("New() mutated NewTransport defaults (Proxy leaked onto base)")
 	}
 }
