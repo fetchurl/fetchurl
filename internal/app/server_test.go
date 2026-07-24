@@ -68,6 +68,33 @@ func TestNewOutboundClientHeaderTimeout(t *testing.T) {
 	}
 }
 
+// NewServer must reject a non-positive eviction interval: Manager.Start calls
+// time.NewTicker, which panics when the duration is ≤ 0.
+func TestNewServerRejectsNonPositiveEvictionInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			server, cleanup, err := NewServer(t.Context(), Config{
+				Port:             8080,
+				CacheDir:         t.TempDir(),
+				EvictionInterval: interval,
+				EvictionStrategy: "lru",
+			})
+			if err == nil {
+				if cleanup != nil {
+					cleanup()
+				}
+				t.Fatal("NewServer: want error for non-positive eviction interval")
+			}
+			if server != nil {
+				t.Error("NewServer: server must be nil on error")
+			}
+			if cleanup != nil {
+				t.Error("NewServer: cleanup must be nil on error")
+			}
+		})
+	}
+}
+
 // NewServer must fail closed when the cache cannot be indexed — serving with
 // a broken eviction view under-counts usage and can skip capacity limits.
 func TestNewServerLoadInitialStateFailure(t *testing.T) {

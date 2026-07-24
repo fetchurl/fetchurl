@@ -31,6 +31,13 @@ type Config struct {
 }
 
 func NewServer(ctx context.Context, cfg Config) (*http.Server, func(), error) {
+	// Manager.Start uses time.NewTicker, which panics on non-positive
+	// duration. Reject bad config here so --eviction-interval=0 / env 0
+	// fails at startup with a clear error instead of crashing a goroutine.
+	if cfg.EvictionInterval <= 0 {
+		return nil, nil, fmt.Errorf("eviction interval must be positive, got %v", cfg.EvictionInterval)
+	}
+
 	// Setup Eviction Manager
 	strat, err := eviction.GetStrategy(cfg.EvictionStrategy)
 	if err != nil {
