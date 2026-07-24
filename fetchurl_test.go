@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/shogo82148/go-sfv"
@@ -327,6 +329,58 @@ func TestFetcher(t *testing.T) {
 		}
 		if httpErr.StatusCode != 403 {
 			t.Errorf("expected status 403, got %d", httpErr.StatusCode)
+		}
+	})
+
+	// Non-OK responses must drain a bounded body so HTTP/1 keep-alive can
+	// reuse the TCP connection for the next server/source attempt.
+	t.Run("NonOK drains body for connection reuse", func(t *testing.T) {
+		var newConns atomic.Int32
+		ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/api/fetchurl/") {
+				w.WriteHeader(http.StatusForbidden)
+				// Body large enough that skipping drain would typically
+				// prevent reuse (and larger than a tiny error page).
+				if _, err := w.Write(bytes.Repeat([]byte("e"), 8192)); err != nil {
+					t.Errorf("write error body: %v", err)
+				}
+				return
+			}
+			if _, err := w.Write(content); err != nil {
+				t.Errorf("write content: %v", err)
+			}
+		}))
+		ts.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				newConns.Add(1)
+			}
+		}
+		ts.Start()
+		defer ts.Close()
+
+		t.Setenv("FETCHURL_SERVER", ts.URL+"/api/fetchurl")
+		// Explicit transport: keep-alive on, single idle conn per host so a
+		// second dial is visible if the first response was not drained.
+		f := NewFetcher(&http.Client{
+			Transport: &http.Transport{
+				DisableKeepAlives:   false,
+				MaxIdleConnsPerHost: 1,
+			},
+		})
+		var out bytes.Buffer
+		if err := f.Fetch(t.Context(), FetchOptions{
+			Algo: "sha256",
+			Hash: hash,
+			URLs: []string{ts.URL + "/source"},
+			Out:  &out,
+		}); err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		if out.String() != string(content) {
+			t.Fatalf("content = %q, want %q", out.String(), content)
+		}
+		if n := newConns.Load(); n != 1 {
+			t.Fatalf("new TCP connections = %d, want 1 (keep-alive reuse after non-OK drain)", n)
 		}
 	})
 }
