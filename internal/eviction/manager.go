@@ -226,17 +226,15 @@ func (m *Manager) RunEviction() {
 		path := filepath.Join(m.cacheDir, victim.Key)
 		err := os.Remove(path)
 		if err != nil && !os.IsNotExist(err) {
+			// Keep strategy entry and byte count so a later cycle can retry.
+			// Dropping the key while leaving currentBytes high permanently
+			// under-evicts (GetVictims never sees the object again).
 			errutil.ReportError(err, "Failed to remove file", "path", path)
-			// Continue to next victim?
-			// If we can't remove, we shouldn't decrement size?
-			// But we remove from strategy to avoid loop.
+			continue
 		}
 
+		// Disk object is gone (or was already missing): drop accounting.
 		m.strategy.Remove(victim.Key)
-
-		// If remove succeeded (or file didn't exist), we consider it gone.
-		if err == nil || os.IsNotExist(err) {
-			m.currentBytes.Add(-victim.Size)
-		}
+		m.currentBytes.Add(-victim.Size)
 	}
 }

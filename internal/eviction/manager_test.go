@@ -139,6 +139,67 @@ func TestLoadInitialStateWalkErrorDoesNotMutateStrategy(t *testing.T) {
 	}
 }
 
+// A victim that cannot be deleted must stay in the strategy and in
+// currentBytes so later cycles can retry. Dropping the key while keeping the
+// size permanently under-evicts (GetVictims never returns that object again).
+func TestRunEvictionKeepsAccountingWhenRemoveFails(t *testing.T) {
+	cacheDir := t.TempDir()
+	maxBytes := int64(10)
+
+	strat := lru.New()
+	policies := []policy.Policy{&maxsize.Policy{MaxBytes: maxBytes}}
+	mgr := eviction.NewManager(cacheDir, policies, time.Minute, strat)
+
+	// Single over-limit CAS object. Make its parent dir unwritable so
+	// os.Remove fails with a non-IsNotExist error (typically EACCES).
+	victim := filepath.Join("sha256", "v1", "v1victimhash000000000000000000000000000000000000000000000000")
+	createFile(t, cacheDir, victim, 20)
+
+	if err := mgr.LoadInitialState(); err != nil {
+		t.Fatalf("LoadInitialState: %v", err)
+	}
+	if got := mgr.CurrentBytes(); got != 20 {
+		t.Fatalf("CurrentBytes = %d, want 20", got)
+	}
+
+	victimDir := filepath.Join(cacheDir, "sha256", "v1")
+	if err := os.Chmod(victimDir, 0o555); err != nil {
+		t.Fatalf("Chmod victim dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(victimDir, 0o755); err != nil {
+			t.Errorf("restore Chmod: %v", err)
+		}
+	})
+
+	mgr.RunEviction()
+
+	// Failed remove must not drop size or strategy membership.
+	if got := mgr.CurrentBytes(); got != 20 {
+		t.Errorf("CurrentBytes = %d, want 20 after failed remove", got)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, victim)); err != nil {
+		t.Errorf("victim should still be on disk: %v", err)
+	}
+
+	victims := strat.GetVictims(20, 0)
+	if len(victims) != 1 || victims[0].Key != victim {
+		t.Errorf("strategy victims = %+v, want single %q", victims, victim)
+	}
+
+	// After permissions are restored, a later cycle must free the space.
+	if err := os.Chmod(victimDir, 0o755); err != nil {
+		t.Fatalf("restore Chmod before retry: %v", err)
+	}
+	mgr.RunEviction()
+	if got := mgr.CurrentBytes(); got != 0 {
+		t.Errorf("CurrentBytes = %d after retry, want 0", got)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, victim)); !os.IsNotExist(err) {
+		t.Errorf("victim should be gone after successful retry, err=%v", err)
+	}
+}
+
 // Orphan put-*/seed-* temps at the cache root must not inflate accounting or
 // survive LoadInitialState — otherwise a crash mid-write makes the next boot
 // over-count cache size and evict real CAS objects early.
