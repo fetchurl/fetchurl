@@ -18,6 +18,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+// httpShutdownTimeout is how long Shutdown may wait for in-flight handlers
+// after the app context has been cancelled.
+const httpShutdownTimeout = 15 * time.Second
+
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Starts the HTTP server",
@@ -29,42 +33,66 @@ var serverCmd = &cobra.Command{
 			errutil.ReportError(err, "Failed to initialize server")
 			os.Exit(1)
 		}
-		defer cleanup()
 
-		// SIGINT/SIGTERM → graceful Shutdown so in-flight CAS streams finish
-		// (or hit the shutdown deadline) instead of an abrupt process kill.
+		// SIGINT/SIGTERM → cancel app work, then Shutdown so handlers can drain.
 		runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		errCh := make(chan error, 1)
-		go func() {
-			err := server.ListenAndServe()
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errCh <- err
-				return
-			}
-			errCh <- nil
-		}()
-
-		select {
-		case <-runCtx.Done():
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			if err := server.Shutdown(shutdownCtx); err != nil {
-				errutil.ReportError(err, "Graceful shutdown failed")
-				os.Exit(1)
-			}
-			if err := <-errCh; err != nil {
-				errutil.ReportError(err, "Server failed after shutdown")
-				os.Exit(1)
-			}
-		case err := <-errCh:
-			if err != nil {
-				errutil.ReportError(err, "Server failed")
-				os.Exit(1)
-			}
+		if err := runHTTPServer(runCtx, server, cleanup); err != nil {
+			errutil.ReportError(err, "Server failed")
+			os.Exit(1)
 		}
 	},
+}
+
+// runHTTPServer serves until runCtx is cancelled or ListenAndServe fails.
+//
+// On cancellation it calls cleanup *before* Shutdown. CAS miss handling uses
+// the app context (not the request context) for singleflight origin fetches
+// and eviction; if that context stays live, long downloads block Shutdown for
+// the full httpShutdownTimeout and a timed-out path can os.Exit without a
+// clean cancel. Cancelling first lets those goroutines observe ctx.Done while
+// Shutdown waits for ServeHTTP to return.
+func runHTTPServer(runCtx context.Context, server *http.Server, cleanup func()) error {
+	return runHTTPServerServe(runCtx, server, cleanup, server.ListenAndServe)
+}
+
+func runHTTPServerServe(runCtx context.Context, server *http.Server, cleanup func(), serve func() error) error {
+	if cleanup == nil {
+		cleanup = func() {}
+	}
+	defer cleanup()
+
+	errCh := make(chan error, 1)
+	go func() {
+		err := serve()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case <-runCtx.Done():
+		// Stop app-scoped work before draining HTTP handlers.
+		cleanup()
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("graceful shutdown: %w", err)
+		}
+		if err := <-errCh; err != nil {
+			return fmt.Errorf("server after shutdown: %w", err)
+		}
+		return nil
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+		return nil
+	}
 }
 
 func init() {
