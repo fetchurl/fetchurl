@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/fetchurl/fetchurl"
@@ -34,18 +35,18 @@ var getCmd = &cobra.Command{
 		f := fetchurl.NewFetcher(httpclient.New())
 
 		var out io.Writer
+		var finish func(fetchErr error) error
 		if output != "" {
-			file, err := os.Create(output)
+			w, fin, err := openAtomicOutput(output)
 			if err != nil {
-				errutil.ReportError(err, "Failed to create output file")
+				errutil.ReportError(err, "Failed to create output temp file", "path", output)
 				os.Exit(1)
 			}
-			defer func() {
-				errutil.LogMsg(file.Close(), "Failed to close output file")
-			}()
-			out = file
+			out = w
+			finish = fin
 		} else {
 			out = os.Stdout
+			finish = func(fetchErr error) error { return fetchErr }
 		}
 
 		bar := progressbar.NewOptions64(
@@ -62,19 +63,72 @@ var getCmd = &cobra.Command{
 			}),
 		)
 
-		if err := f.Fetch(cmd.Context(), fetchurl.FetchOptions{
+		fetchErr := f.Fetch(cmd.Context(), fetchurl.FetchOptions{
 			Algo: algo,
 			Hash: hash,
 			URLs: urls,
 			Out:  io.MultiWriter(out, bar),
-		}); err != nil {
-			errutil.ReportError(err, "Fetch failed")
-			if output != "" {
-				errutil.LogMsg(os.Remove(output), "Failed to remove output file after failed fetch", "path", output)
+		})
+		if err := finish(fetchErr); err != nil {
+			if fetchErr != nil {
+				errutil.ReportError(fetchErr, "Fetch failed")
+			} else {
+				errutil.ReportError(err, "Failed to finalize output file", "path", output)
 			}
 			os.Exit(1)
 		}
 	},
+}
+
+// openAtomicOutput creates a temp file in the destination directory and returns
+// a writer plus a finish callback. The final path is not truncated or replaced
+// until finish(nil) renames the temp into place after a verified fetch.
+//
+// finish(fetchErr):
+//   - if fetchErr != nil: close+remove the temp (leave any existing final path
+//     untouched) and return fetchErr
+//   - if fetchErr == nil: close the temp, rename onto path, surface close/rename
+//     errors (and remove the temp if rename cannot proceed)
+func openAtomicOutput(path string) (io.Writer, func(error) error, error) {
+	dir := filepath.Dir(path)
+	if dir == "" {
+		dir = "."
+	}
+	tmp, err := os.CreateTemp(dir, ".fetchurl-get-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpName := tmp.Name()
+
+	finish := func(fetchErr error) error {
+		if fetchErr != nil {
+			closeErr := tmp.Close()
+			if closeErr != nil {
+				errutil.LogMsg(closeErr, "Failed to close output temp after failed fetch", "path", tmpName)
+			}
+			if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
+				errutil.LogMsg(remErr, "Failed to remove output temp after failed fetch", "path", tmpName)
+			}
+			return fetchErr
+		}
+
+		if err := tmp.Close(); err != nil {
+			if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
+				errutil.LogMsg(remErr, "Failed to remove output temp after close error", "path", tmpName)
+			}
+			return fmt.Errorf("close output temp: %w", err)
+		}
+
+		if err := os.Rename(tmpName, path); err != nil {
+			if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
+				errutil.LogMsg(remErr, "Failed to remove output temp after rename error", "path", tmpName)
+			}
+			return fmt.Errorf("install output file: %w", err)
+		}
+		return nil
+	}
+
+	return tmp, finish, nil
 }
 
 func init() {
