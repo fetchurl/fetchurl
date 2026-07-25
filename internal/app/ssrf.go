@@ -27,12 +27,13 @@ func ValidateIP(host string, allowPrivate bool) error {
 	// This is necessary for testcontainers-based integration tests.
 	if !allowPrivate {
 		// RFC 1918 / ULA private, loopback, unspecified, link-local (includes
-		// 169.254.169.254 cloud metadata), multicast, and RFC 6598 shared
-		// address space (CGNAT 100.64.0.0/10) used as internal ranges on many
-		// clouds and carrier NATs.
+		// 169.254.169.254 cloud metadata), multicast, RFC 6598 shared address
+		// space (CGNAT 100.64.0.0/10), and RFC 1122 "this network" 0.0.0.0/8.
+		// net.IP.IsUnspecified only matches 0.0.0.0 itself; the rest of /8 is
+		// still non-globally-routable and must not be dialable as an origin.
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 			ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-			ip.IsMulticast() || isSharedAddressSpace(ip) {
+			ip.IsMulticast() || isSharedAddressSpace(ip) || isThisNetwork(ip) {
 			return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)
 		}
 	}
@@ -50,4 +51,15 @@ func isSharedAddressSpace(ip net.IP) bool {
 	}
 	// 100.64.0.0/10 → second octet 64–127
 	return ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
+}
+
+// isThisNetwork reports whether ip is in RFC 1122 "this network" 0.0.0.0/8
+// (including IPv4-mapped IPv6 forms). Only 0.0.0.0 is IsUnspecified; 0.0.0.1
+// and siblings are IsGlobalUnicast in Go but are not public Internet addresses.
+func isThisNetwork(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	return ip4[0] == 0
 }
