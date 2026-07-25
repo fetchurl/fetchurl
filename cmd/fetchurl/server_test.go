@@ -1,11 +1,96 @@
 package main
 
 import (
+	"context"
+	"net"
+	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
+
+// Handler blocks only on appCtx (same pattern as CAS singleflight using AppCtx).
+// Without cancelling appCtx before Shutdown, Shutdown would wait until the
+// shutdown timeout while the handler never returns.
+func TestRunHTTPServerCancelsAppCtxBeforeShutdown(t *testing.T) {
+	appCtx, appCancel := context.WithCancel(context.Background())
+	t.Cleanup(appCancel)
+
+	started := make(chan struct{})
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			// Ignore request context: mirrors CAS fetchAndStream(h.AppCtx, ...).
+			<-appCtx.Done()
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- runHTTPServerServe(runCtx, server, appCancel, func() error {
+			return server.Serve(ln)
+		})
+	}()
+
+	// In-flight request that only completes when appCtx is cancelled.
+	reqErr := make(chan error, 1)
+	go func() {
+		// Wait until serve is accepting (retry briefly).
+		var last error
+		for i := 0; i < 50; i++ {
+			resp, err := http.Get("http://" + ln.Addr().String() + "/")
+			if err == nil {
+				resp.Body.Close()
+				reqErr <- nil
+				return
+			}
+			last = err
+			time.Sleep(10 * time.Millisecond)
+		}
+		reqErr <- last
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		runCancel()
+		t.Fatal("handler did not start")
+	}
+
+	runCancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runHTTPServerServe: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown blocked: app context was not cancelled before Shutdown")
+	}
+
+	select {
+	case err := <-reqErr:
+		if err != nil {
+			t.Fatalf("client request: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight request did not finish after app cancel")
+	}
+}
 
 func TestNormalizeCSVList(t *testing.T) {
 	tests := []struct {
