@@ -4,11 +4,16 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"errors"
 	"fmt"
 	"hash"
 	"slices"
 	"strings"
 )
+
+// ErrUnsupportedAlgorithm is returned when GetHasher is asked for an
+// algorithm that is not registered.
+var ErrUnsupportedAlgorithm = errors.New("unsupported hash algorithm")
 
 type HashFactory func() hash.Hash
 
@@ -41,7 +46,7 @@ func NormalizeAlgo(name string) string {
 func GetHasher(name string) (hash.Hash, error) {
 	factory, ok := registry[NormalizeAlgo(name)]
 	if !ok {
-		return nil, fmt.Errorf("unsupported hash algorithm: %s", name)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedAlgorithm, name)
 	}
 	return factory(), nil
 }
