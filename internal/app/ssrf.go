@@ -1,8 +1,16 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net"
+)
+
+// Domain errors for SSRF IP validation. Callers can errors.Is these;
+// the address is wrapped with %w for context.
+var (
+	ErrInvalidIP         = errors.New("SSRF prevention: could not parse IP address")
+	ErrBlockedInternalIP = errors.New("SSRF prevention: blocked access to internal IP")
 )
 
 func ValidateIP(host string, allowPrivate bool) error {
@@ -20,7 +28,7 @@ func ValidateIP(host string, allowPrivate bool) error {
 	ip := net.ParseIP(host)
 	if ip == nil {
 		// Prevent bypass using malformed IP strings that get resolved weirdly downstream
-		return fmt.Errorf("SSRF prevention: could not parse IP address %s", host)
+		return fmt.Errorf("%w %s", ErrInvalidIP, host)
 	}
 
 	// We skip SSRF checks if explicitly allowed.
@@ -34,7 +42,7 @@ func ValidateIP(host string, allowPrivate bool) error {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 			ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 			ip.IsMulticast() || isSharedAddressSpace(ip) || isThisNetwork(ip) {
-			return fmt.Errorf("SSRF prevention: blocked access to internal IP %s", ip)
+			return fmt.Errorf("%w %s", ErrBlockedInternalIP, ip)
 		}
 	}
 	return nil
