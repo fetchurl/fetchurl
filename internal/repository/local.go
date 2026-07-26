@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,15 @@ import (
 
 	"github.com/fetchurl/fetchurl/internal/errutil"
 	"github.com/fetchurl/fetchurl/internal/eviction"
+)
+
+// Domain errors for the on-disk CAS layout. Callers can errors.Is these;
+// they carry no extra wrap cause of their own.
+var (
+	ErrPathEscapesCache = errors.New("hash path escapes cache directory")
+	ErrNotRegularFile   = errors.New("CAS path is not a regular file")
+	ErrCommitClosed     = errors.New("cannot commit: write session already closed")
+	ErrWriteClosed      = errors.New("write to closed pending write")
 )
 
 // LocalRepository implements a Repository backed by the local filesystem.
@@ -48,7 +58,7 @@ func (r *LocalRepository) casRel(algo, hash string) (string, error) {
 	if rel == "" || rel == "." || rel == ".." ||
 		strings.HasPrefix(rel, ".."+string(os.PathSeparator)) ||
 		filepath.IsAbs(rel) {
-		return "", fmt.Errorf("hash path escapes cache directory")
+		return "", ErrPathEscapesCache
 	}
 	return rel, nil
 }
@@ -84,7 +94,7 @@ func (r *LocalRepository) Exists(ctx context.Context, algo, hash string) (bool, 
 	}
 	if !info.Mode().IsRegular() {
 		// Symlink/dir/device under a digest path is not a CAS object.
-		return false, fmt.Errorf("CAS path is not a regular file")
+		return false, ErrNotRegularFile
 	}
 	return true, nil
 }
@@ -114,7 +124,7 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 		return nil, 0, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, 0, fmt.Errorf("CAS path is not a regular file")
+		return nil, 0, ErrNotRegularFile
 	}
 
 	f, err := root.Open(rel)
@@ -129,7 +139,7 @@ func (r *LocalRepository) Get(ctx context.Context, algo, hash string) (io.ReadCl
 	}
 	if !fi.Mode().IsRegular() {
 		errutil.ReportError(f.Close(), "Failed to close non-regular CAS file", "path", rel)
-		return nil, 0, fmt.Errorf("CAS path is not a regular file")
+		return nil, 0, ErrNotRegularFile
 	}
 
 	if r.eviction != nil {
@@ -171,7 +181,7 @@ func (r *LocalRepository) BeginWrite(algo, hash string) (io.WriteCloser, func() 
 			return nil
 		}
 		if pw.closed {
-			return fmt.Errorf("cannot commit: write session already closed")
+			return ErrCommitClosed
 		}
 
 		// Flush file data to stable storage before we close and rename. Without
@@ -275,7 +285,7 @@ type pendingWrite struct {
 
 func (p *pendingWrite) Write(b []byte) (int, error) {
 	if p.closed {
-		return 0, fmt.Errorf("write to closed pending write")
+		return 0, ErrWriteClosed
 	}
 	return p.f.Write(b)
 }

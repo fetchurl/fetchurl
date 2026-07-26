@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -165,8 +166,8 @@ func TestBeginWriteCloseAbortsTemp(t *testing.T) {
 		t.Fatalf("put temps after Close abort = %v, want none", temps)
 	}
 	// Commit after abort must fail and must not create a CAS object.
-	if err := commit(); err == nil {
-		t.Fatal("commit after Close: want error")
+	if err := commit(); !errors.Is(err, ErrCommitClosed) {
+		t.Fatalf("commit after Close: got %v, want ErrCommitClosed", err)
 	}
 	if _, err := os.Stat(filepath.Join(cacheDir, algo, hash[:2], hash)); !os.IsNotExist(err) {
 		t.Fatalf("CAS object should not exist after abort, stat err=%v", err)
@@ -279,10 +280,15 @@ func TestCASSymlinkNotServed(t *testing.T) {
 	if exists {
 		t.Fatalf("Exists returned true for symlink (err=%v)", err)
 	}
+	if !errors.Is(err, ErrNotRegularFile) {
+		t.Fatalf("Exists: got %v, want ErrNotRegularFile", err)
+	}
 
-	if rc, _, err := repo.Get(ctx, algo, hash); err == nil {
+	if rc, _, errGet := repo.Get(ctx, algo, hash); errGet == nil {
 		_ = rc.Close()
 		t.Fatal("Get: accepted symlink CAS path")
+	} else if !errors.Is(errGet, ErrNotRegularFile) {
+		t.Fatalf("Get: got %v, want ErrNotRegularFile", errGet)
 	}
 
 	// Commit must install a regular file, replacing the symlink rather than
