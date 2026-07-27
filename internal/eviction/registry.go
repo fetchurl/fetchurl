@@ -1,9 +1,15 @@
 package eviction
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
+
+// ErrStrategyNotFound is returned by GetStrategy when no factory is registered
+// for the requested name. Callers can errors.Is this; the name is wrapped with
+// %w for context.
+var ErrStrategyNotFound = errors.New("strategy not found")
 
 var (
 	registryMu sync.RWMutex
@@ -24,7 +30,7 @@ func GetStrategy(name string) (Strategy, error) {
 
 	factory, ok := registry[name]
 	if !ok {
-		return nil, fmt.Errorf("strategy not found: %s", name)
+		return nil, fmt.Errorf("%w: %s", ErrStrategyNotFound, name)
 	}
 	return factory(), nil
 }
