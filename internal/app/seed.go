@@ -20,12 +20,6 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-// maxSeedErrorBodyDrain is how many bytes of a non-OK response body we will
-// read before closing. Enough to free the connection for keep-alive reuse on
-// later seed URLs, without pinning multi-GB error pages in memory or stalling
-// the seed loop.
-const maxSeedErrorBodyDrain = 32 << 10 // 32 KiB
-
 type SeedResult struct {
 	Processed int
 	Seeded    int
@@ -125,7 +119,7 @@ func seedURL(ctx context.Context, client *http.Client, repo *repository.LocalRep
 		// Close alone does not guarantee HTTP/1.x connection reuse when the
 		// body was not fully consumed. Seed walks many URLs with one client;
 		// drain a bounded prefix so idle conns can be recycled for later URLs.
-		if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxSeedErrorBodyDrain)); drainErr != nil {
+		if drainErr := httpclient.DrainErrorBody(resp.Body); drainErr != nil {
 			errutil.LogMsg(drainErr, "Failed to drain non-OK seed response body", "url", url)
 		}
 		return 0, 0, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, url)
