@@ -15,7 +15,6 @@ type LRU struct {
 	mu    sync.Mutex
 	list  *list.List
 	items map[string]*list.Element
-	sizes map[string]int64
 }
 
 type entry struct {
@@ -33,7 +32,6 @@ func New() *LRU {
 	return &LRU{
 		list:  list.New(),
 		items: make(map[string]*list.Element),
-		sizes: make(map[string]int64),
 	}
 }
 
@@ -50,14 +48,12 @@ func (l *LRU) OnAdd(key string, size int64) int64 {
 		ent := elem.Value.(*entry)
 		oldSize := ent.size
 		ent.size = size
-		l.sizes[key] = size
 		return size - oldSize
 	}
 
 	ent := &entry{key: key, size: size}
 	elem := l.list.PushFront(ent)
 	l.items[key] = elem
-	l.sizes[key] = size
 	return size
 }
 
@@ -78,7 +74,6 @@ func (l *LRU) Remove(key string) {
 	if elem, ok := l.items[key]; ok {
 		l.list.Remove(elem)
 		delete(l.items, key)
-		delete(l.sizes, key)
 	}
 }
 

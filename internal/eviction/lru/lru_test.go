@@ -59,3 +59,22 @@ func TestLRU_Remove(t *testing.T) {
 		t.Errorf("expected 0 victims after remove, got %d", len(victims))
 	}
 }
+
+func TestLRU_OnAddUpdatesSize(t *testing.T) {
+	l := New()
+	if diff := l.OnAdd("a", 10); diff != 10 {
+		t.Fatalf("first OnAdd diff = %d, want 10", diff)
+	}
+	if diff := l.OnAdd("a", 25); diff != 15 {
+		t.Fatalf("update OnAdd diff = %d, want 15", diff)
+	}
+
+	// Size lives on the list entry; GetVictims must see the updated size.
+	victims := l.GetVictims(25, 0)
+	if len(victims) != 1 {
+		t.Fatalf("expected 1 victim, got %d", len(victims))
+	}
+	if victims[0].Key != "a" || victims[0].Size != 25 {
+		t.Fatalf("victim = %+v, want key=a size=25", victims[0])
+	}
+}
