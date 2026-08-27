@@ -14,11 +14,16 @@ import (
 // full-body Client.Timeout — multi-GB streams on slow links must not be
 // aborted by a global deadline.
 //
-// Callers that need a custom DialContext (e.g. SSRF IP filtering on the
-// server) should start from NewTransport and replace DialContext.
+// Proxy is intentionally left nil. Callers that install a custom DialContext
+// for SSRF IP filtering (the CAS server) must dial the real peer; an
+// HTTP(S)_PROXY hop would connect only to the proxy and let the proxy reach
+// blocked addresses. CLI and library clients that should honor environment
+// proxies use New, which sets ProxyFromEnvironment on a copy of this base.
+//
+// Callers that need a custom DialContext should start from NewTransport and
+// replace DialContext.
 func NewTransport() *http.Transport {
 	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -36,8 +41,13 @@ func NewTransport() *http.Transport {
 // It does not set Client.Timeout (that covers the entire transfer and would
 // abort multi-GB bodies on slow links). Dial, TLS handshake, and response-
 // header waits are bounded so stalled peers fail without killing long streams.
+// HTTP(S)_PROXY / NO_PROXY from the environment are honored for CLI and
+// library fetches; the server's SSRF-aware transport uses NewTransport
+// without a proxy so DialContext filters apply to the origin.
 func New() *http.Client {
+	tr := NewTransport()
+	tr.Proxy = http.ProxyFromEnvironment
 	return &http.Client{
-		Transport: NewTransport(),
+		Transport: tr,
 	}
 }
