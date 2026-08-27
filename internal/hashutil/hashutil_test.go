@@ -1,6 +1,19 @@
 package hashutil
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestGetHasherUnsupported(t *testing.T) {
+	_, err := GetHasher("md5")
+	if err == nil {
+		t.Fatal("expected error for unsupported algorithm")
+	}
+	if !errors.Is(err, ErrUnsupportedAlgorithm) {
+		t.Fatalf("errors.Is(err, ErrUnsupportedAlgorithm) = false; err = %v", err)
+	}
+}
 
 func TestIsValidDigest(t *testing.T) {
 	emptySHA256 := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
