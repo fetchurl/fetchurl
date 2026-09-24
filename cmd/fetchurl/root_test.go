@@ -15,29 +15,16 @@ func TestExecutePropagatesContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	const name = "test-context-probe"
-	for _, c := range rootCmd.Commands() {
-		if c.Name() == name {
-			rootCmd.RemoveCommand(c)
-		}
-	}
-
 	var childCtx context.Context
 	probe := &cobra.Command{
-		Use: name,
+		Use: "test-context-probe",
 		Run: func(cmd *cobra.Command, args []string) {
 			childCtx = cmd.Context()
 		},
 	}
-	rootCmd.AddCommand(probe)
-	t.Cleanup(func() {
-		rootCmd.RemoveCommand(probe)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
+	withRootProbe(t, probe)
 
-	rootCmd.SetArgs([]string{name})
+	rootCmd.SetArgs([]string{probe.Name()})
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)
 
@@ -63,30 +50,17 @@ func TestExecuteCanceledContextStillInvokesCommand(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	const name = "test-context-already-done"
-	for _, c := range rootCmd.Commands() {
-		if c.Name() == name {
-			rootCmd.RemoveCommand(c)
-		}
-	}
-
 	var saw error
 	probe := &cobra.Command{
-		Use: name,
+		Use: "test-context-already-done",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			saw = cmd.Context().Err()
 			return nil
 		},
 	}
-	rootCmd.AddCommand(probe)
-	t.Cleanup(func() {
-		rootCmd.RemoveCommand(probe)
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
+	withRootProbe(t, probe)
 
-	rootCmd.SetArgs([]string{name})
+	rootCmd.SetArgs([]string{probe.Name()})
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(io.Discard)
 
@@ -96,4 +70,22 @@ func TestExecuteCanceledContextStillInvokesCommand(t *testing.T) {
 	if saw == nil {
 		t.Fatal("expected command context to already be canceled")
 	}
+}
+
+// withRootProbe installs probe on the package root command and removes it
+// after the test, including args and output streams left on rootCmd.
+func withRootProbe(t *testing.T, probe *cobra.Command) {
+	t.Helper()
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == probe.Name() {
+			rootCmd.RemoveCommand(c)
+		}
+	}
+	rootCmd.AddCommand(probe)
+	t.Cleanup(func() {
+		rootCmd.RemoveCommand(probe)
+		rootCmd.SetArgs(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
 }
