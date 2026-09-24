@@ -119,13 +119,13 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 
 	// 1. Try Servers
 	for _, server := range f.Servers {
-		lastErr = f.fetchFromServer(ctx, server, opts.Algo, opts.Hash, opts.URLs, cw)
-		if lastErr == nil {
-			return nil
-		}
-		errutil.LogMsg(lastErr, "Failed to fetch from server", "server", server)
-		if cw.N > 0 {
-			return fmt.Errorf("%w: %w", ErrPartialWrite, lastErr)
+		var stop bool
+		stop, lastErr = cw.finish(
+			f.fetchFromServer(ctx, server, opts.Algo, opts.Hash, opts.URLs, cw),
+			"Failed to fetch from server", "server", server,
+		)
+		if stop {
+			return lastErr
 		}
 	}
 
@@ -138,13 +138,13 @@ func (f *Fetcher) Fetch(ctx context.Context, opts FetchOptions) error {
 		direct[i], direct[j] = direct[j], direct[i]
 	})
 	for _, url := range direct {
-		lastErr = f.fetchDirect(ctx, url, opts.Algo, opts.Hash, cw)
-		if lastErr == nil {
-			return nil
-		}
-		errutil.LogMsg(lastErr, "Failed to fetch from source", "url", url)
-		if cw.N > 0 {
-			return fmt.Errorf("%w: %w", ErrPartialWrite, lastErr)
+		var stop bool
+		stop, lastErr = cw.finish(
+			f.fetchDirect(ctx, url, opts.Algo, opts.Hash, cw),
+			"Failed to fetch from source", "url", url,
+		)
+		if stop {
+			return lastErr
 		}
 	}
 
@@ -163,6 +163,21 @@ func (c *countingWriter) Write(p []byte) (n int, err error) {
 	n, err = c.Writer.Write(p)
 	c.N += int64(n)
 	return n, err
+}
+
+// finish applies the shared stop rule for one server or direct URL.
+// A nil error stops successfully. After any bytes were written, another source
+// would append to a partial Out, so the error is returned as ErrPartialWrite.
+// A failure with nothing written is logged and returned with stop=false.
+func (c *countingWriter) finish(err error, msg string, args ...any) (stop bool, ret error) {
+	if err == nil {
+		return true, nil
+	}
+	errutil.LogMsg(err, msg, args...)
+	if c.N > 0 {
+		return true, fmt.Errorf("%w: %w", ErrPartialWrite, err)
+	}
+	return false, err
 }
 
 func (f *Fetcher) fetchFromServer(ctx context.Context, server, algo, hashStr string, sourceUrls []string, out io.Writer) error {
