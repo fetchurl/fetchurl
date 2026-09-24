@@ -3,9 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -18,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/fetchurl/fetchurl/internal/hashutil"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -75,12 +74,12 @@ func TestSeedCache(t *testing.T) {
 		t.Fatalf("Failed = %d, want 0", result.Failed)
 	}
 
-	assertCachedFile(t, cacheDir, "sha1", hashSHA1(contentA), contentA)
-	assertCachedFile(t, cacheDir, "sha256", hashSHA256(contentA), contentA)
-	assertCachedFile(t, cacheDir, "sha512", hashSHA512(contentA), contentA)
-	assertCachedFile(t, cacheDir, "sha1", hashSHA1(contentB), contentB)
-	assertCachedFile(t, cacheDir, "sha256", hashSHA256(contentB), contentB)
-	assertCachedFile(t, cacheDir, "sha512", hashSHA512(contentB), contentB)
+	assertCachedFile(t, cacheDir, "sha1", contentDigest(t, "sha1", contentA), contentA)
+	assertCachedFile(t, cacheDir, "sha256", contentDigest(t, "sha256", contentA), contentA)
+	assertCachedFile(t, cacheDir, "sha512", contentDigest(t, "sha512", contentA), contentA)
+	assertCachedFile(t, cacheDir, "sha1", contentDigest(t, "sha1", contentB), contentB)
+	assertCachedFile(t, cacheDir, "sha256", contentDigest(t, "sha256", contentB), contentB)
+	assertCachedFile(t, cacheDir, "sha512", contentDigest(t, "sha512", contentB), contentB)
 }
 
 func TestSeedCacheReportsProgress(t *testing.T) {
@@ -127,7 +126,7 @@ func TestSeedCacheReportsProgress(t *testing.T) {
 	if !strings.Contains(logText, "msg=\"Finished seeding URL\"") || !strings.Contains(logText, "seeded=3") || !strings.Contains(logText, "skipped=0") {
 		t.Fatalf("missing seed completion slog in %q", logText)
 	}
-	if !strings.Contains(logText, "sha1:"+hashSHA1(content)) || !strings.Contains(logText, "sha256:"+hashSHA256(content)) || !strings.Contains(logText, "sha512:"+hashSHA512(content)) {
+	if !strings.Contains(logText, "sha1:"+contentDigest(t, "sha1", content)) || !strings.Contains(logText, "sha256:"+contentDigest(t, "sha256", content)) || !strings.Contains(logText, "sha512:"+contentDigest(t, "sha512", content)) {
 		t.Fatalf("missing hashes in seed completion slog in %q", logText)
 	}
 }
@@ -328,17 +327,14 @@ func assertCachedFile(t *testing.T, cacheDir, algo, hash string, want []byte) {
 	}
 }
 
-func hashSHA1(data []byte) string {
-	sum := sha1.Sum(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func hashSHA256(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func hashSHA512(data []byte) string {
-	sum := sha512.Sum512(data)
-	return hex.EncodeToString(sum[:])
+func contentDigest(t *testing.T, algo string, data []byte) string {
+	t.Helper()
+	h, err := hashutil.GetHasher(algo)
+	if err != nil {
+		t.Fatalf("GetHasher(%s): %v", algo, err)
+	}
+	if _, err := h.Write(data); err != nil {
+		t.Fatalf("hash %s: %v", algo, err)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
