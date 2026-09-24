@@ -110,22 +110,25 @@ func init() {
 	serverCmd.Flags().String("eviction-strategy", "lru", "Eviction strategy to use (lru)")
 	serverCmd.Flags().StringSlice("upstream", []string{}, "Upstream fetchurl servers (repeatable or comma-separated; same for FETCHURL_UPSTREAM)")
 
-	mustBindPFlag("port", serverCmd.Flags().Lookup("port"))
-	mustBindPFlag("cache-dir", serverCmd.Flags().Lookup("cache-dir"))
-	mustBindPFlag("max-cache-size", serverCmd.Flags().Lookup("max-cache-size"))
-	mustBindPFlag("min-free-space", serverCmd.Flags().Lookup("min-free-space"))
-	mustBindPFlag("eviction-interval", serverCmd.Flags().Lookup("eviction-interval"))
-	mustBindPFlag("eviction-strategy", serverCmd.Flags().Lookup("eviction-strategy"))
-	mustBindPFlag("upstream", serverCmd.Flags().Lookup("upstream"))
-
-	// Bind environment variables
-	mustBindEnv("port", "FETCHURL_PORT")
-	mustBindEnv("cache-dir", "FETCHURL_CACHE_DIR")
-	mustBindEnv("max-cache-size", "FETCHURL_MAX_CACHE_SIZE")
-	mustBindEnv("min-free-space", "FETCHURL_MIN_FREE_SPACE")
-	mustBindEnv("eviction-interval", "FETCHURL_EVICTION_INTERVAL")
-	mustBindEnv("eviction-strategy", "FETCHURL_EVICTION_STRATEGY")
-	mustBindEnv("upstream", "FETCHURL_UPSTREAM")
+	// One row per flag so the pflag name and FETCHURL_* env stay paired.
+	bindings := []struct {
+		key string
+		env string
+	}{
+		{"port", "FETCHURL_PORT"},
+		{"cache-dir", "FETCHURL_CACHE_DIR"},
+		{"max-cache-size", "FETCHURL_MAX_CACHE_SIZE"},
+		{"min-free-space", "FETCHURL_MIN_FREE_SPACE"},
+		{"eviction-interval", "FETCHURL_EVICTION_INTERVAL"},
+		{"eviction-strategy", "FETCHURL_EVICTION_STRATEGY"},
+		{"upstream", "FETCHURL_UPSTREAM"},
+	}
+	for _, b := range bindings {
+		mustBindPFlag(b.key, serverCmd.Flags().Lookup(b.key))
+	}
+	for _, b := range bindings {
+		mustBindEnv(b.key, b.env)
+	}
 }
 
 func serverConfigFromViper() app.Config {
