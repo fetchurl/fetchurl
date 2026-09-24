@@ -100,29 +100,30 @@ func openAtomicOutput(path string) (io.Writer, func(error) error, error) {
 	}
 	tmpName := tmp.Name()
 
+	// Missing temp is fine: a previous cleanup may already have removed it.
+	removeTemp := func(msg string) {
+		if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
+			errutil.LogMsg(remErr, msg, "path", tmpName)
+		}
+	}
+
 	finish := func(fetchErr error) error {
 		if fetchErr != nil {
 			closeErr := tmp.Close()
 			if closeErr != nil {
 				errutil.LogMsg(closeErr, "Failed to close output temp after failed fetch", "path", tmpName)
 			}
-			if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
-				errutil.LogMsg(remErr, "Failed to remove output temp after failed fetch", "path", tmpName)
-			}
+			removeTemp("Failed to remove output temp after failed fetch")
 			return fetchErr
 		}
 
 		if err := tmp.Close(); err != nil {
-			if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
-				errutil.LogMsg(remErr, "Failed to remove output temp after close error", "path", tmpName)
-			}
+			removeTemp("Failed to remove output temp after close error")
 			return fmt.Errorf("close output temp: %w", err)
 		}
 
 		if err := os.Rename(tmpName, path); err != nil {
-			if remErr := os.Remove(tmpName); remErr != nil && !os.IsNotExist(remErr) {
-				errutil.LogMsg(remErr, "Failed to remove output temp after rename error", "path", tmpName)
-			}
+			removeTemp("Failed to remove output temp after rename error")
 			return fmt.Errorf("install output file: %w", err)
 		}
 		return nil
