@@ -25,53 +25,38 @@ func TestFetcher(t *testing.T) {
 	content := []byte("test content")
 	hash := sha256Sum(content)
 
-	t.Run("Direct Download Success", func(t *testing.T) {
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, err := w.Write(content); err != nil {
-				t.Errorf("failed to write response: %v", err)
+	for _, tc := range []struct {
+		name string
+		algo string
+		hash string
+	}{
+		{name: "Direct Download Success", algo: "sha256", hash: hash},
+		{name: "Direct Download Success Uppercase Hash", algo: "SHA-256", hash: strings.ToUpper(hash)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, err := w.Write(content); err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
+			}))
+			defer ts.Close()
+
+			f := NewFetcher(nil)
+			var out bytes.Buffer
+			err := f.Fetch(t.Context(), FetchOptions{
+				Algo: tc.algo,
+				Hash: tc.hash,
+				URLs: []string{ts.URL},
+				Out:  &out,
+			})
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
 			}
-		}))
-		defer ts.Close()
-
-		f := NewFetcher(nil)
-		var out bytes.Buffer
-		err := f.Fetch(t.Context(), FetchOptions{
-			Algo: "sha256",
-			Hash: hash,
-			URLs: []string{ts.URL},
-			Out:  &out,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if out.String() != string(content) {
-			t.Errorf("got %q, want %q", out.String(), string(content))
-		}
-	})
-
-	t.Run("Direct Download Success Uppercase Hash", func(t *testing.T) {
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, err := w.Write(content); err != nil {
-				t.Errorf("failed to write response: %v", err)
+			if out.String() != string(content) {
+				t.Errorf("got %q, want %q", out.String(), string(content))
 			}
-		}))
-		defer ts.Close()
-
-		f := NewFetcher(nil)
-		var out bytes.Buffer
-		err := f.Fetch(t.Context(), FetchOptions{
-			Algo: "SHA-256",
-			Hash: strings.ToUpper(hash),
-			URLs: []string{ts.URL},
-			Out:  &out,
 		})
-		if err != nil {
-			t.Fatalf("unexpected error for uppercase hash: %v", err)
-		}
-		if out.String() != string(content) {
-			t.Errorf("got %q, want %q", out.String(), string(content))
-		}
-	})
+	}
 
 	t.Run("Direct Download Hash Mismatch", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
