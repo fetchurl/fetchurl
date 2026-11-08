@@ -4,7 +4,7 @@ go 1.25.12
 
 require (
 	github.com/schollz/progressbar/v3 v3.19.0
-	github.com/shogo82148/go-sfv v0.3.3
+	github.com/shogo82148/go-sfv v0.3.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
