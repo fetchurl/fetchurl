@@ -39,6 +39,8 @@ github.com/schollz/progressbar/v3 v3.19.0 h1:Ea18xuIRQXLAUidVDox3AbwfUhD0/1Ivohy
 github.com/schollz/progressbar/v3 v3.19.0/go.mod h1:IsO3lpbaGuzh8zIMzgY3+J8l4C8GjO0Y9S69eFvNsec=
 github.com/shogo82148/go-sfv v0.3.3 h1:N8AhD+fwmGGNXPP3KPWrnMQE59IIEuF/yAjgI8caeQM=
 github.com/shogo82148/go-sfv v0.3.3/go.mod h1:VYNXeh/Gj0TO5PR+K7ZNTRnxKe233q6kYU/qIL0s6s4=
+github.com/shogo82148/go-sfv v0.3.6 h1:8MpndGsf6vZ3dHeTYN8TnKjL5TstUYIpwS7urkehv2o=
+github.com/shogo82148/go-sfv v0.3.6/go.mod h1:VYNXeh/Gj0TO5PR+K7ZNTRnxKe233q6kYU/qIL0s6s4=
 github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 h1:+jumHNA0Wrelhe64i8F6HNlS8pkoyMv5sreGx2Ry5Rw=
 github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8/go.mod h1:3n1Cwaq1E1/1lhQhtRK2ts/ZwZEhjcQeJQ1RuC6Q/8U=
 github.com/spf13/afero v1.15.0 h1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=
